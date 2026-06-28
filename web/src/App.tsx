@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KunEvent } from "./types";
 import { reduceEvents } from "./state/eventReducer";
-import { liveSource, replaySource, type DataSource } from "./lib/api";
+import { liveSource, replaySource, type DataSource, type LaunchChoice } from "./lib/api";
 import { TopbarStatus } from "./components/TopbarStatus";
 import { TrajectoryGraph } from "./components/TrajectoryGraph";
 import { ExperimentDetails } from "./components/ExperimentDetails";
@@ -12,7 +12,11 @@ import { MetricsChart } from "./components/MetricsChart";
 import { ResearchMemoryPanel } from "./components/ResearchMemoryPanel";
 import { EventStream } from "./components/EventStream";
 import { ForkDialog } from "./components/ForkDialog";
-import { MissionLauncher, type LaunchChoice } from "./components/MissionLauncher";
+import { MissionNavigator, type MissionNavigatorHandle } from "./components/MissionNavigator";
+import { NewMissionModal } from "./components/NewMissionModal";
+import { ObserveModal } from "./components/ObserveModal";
+import { ReplayGallery } from "./components/ReplayGallery";
+import { EmptyState } from "./components/EmptyState";
 import { ApprovalGate } from "./components/ApprovalGate";
 import { InstructBox } from "./components/InstructBox";
 import { StopPauseControls } from "./components/StopPauseControls";
@@ -34,20 +38,43 @@ export default function App() {
   const [highlightConstraint, setHighlightConstraint] = useState<string | undefined>();
   const autoSelected = useRef(false);
 
+  // shell chrome
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [observeOpen, setObserveOpen] = useState(false);
+  const [replayOpen, setReplayOpen] = useState(false);
+  const navRef = useRef<MissionNavigatorHandle>(null);
+
+  // Load a mission IN PLACE — the shell stays mounted; the data-source effect
+  // below re-subscribes the single reducer to the new source.
+  const selectMission = (c: LaunchChoice) => {
+    setLaunched(c);
+    setMissionId(c.kind === "replay" ? undefined : c.missionId);
+  };
+  const goHome = () => {
+    setLaunched(null);
+    setMissionId(undefined);
+    setSelectedId(undefined);
+  };
+
   // Deep links for demos: ?replay  ·  ?live=<id>  ·  ?observe=<id>
   useEffect(() => {
     if (launched) return;
     const q = new URLSearchParams(window.location.search);
-    if (q.has("replay")) setLaunched({ kind: "replay" });
-    else if (q.get("live")) setLaunched({ kind: "live", missionId: q.get("live")! });
-    else if (q.get("observe")) setLaunched({ kind: "observe", missionId: q.get("observe")! });
+    if (q.has("replay")) selectMission({ kind: "replay" });
+    else if (q.get("live")) selectMission({ kind: "live", missionId: q.get("live")! });
+    else if (q.get("observe")) selectMission({ kind: "observe", missionId: q.get("observe")! });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Subscribe to the chosen data source; everything flows into ONE reducer.
   useEffect(() => {
-    if (!launched) return;
+    if (!launched) {
+      setEvents([]);
+      return;
+    }
     setEvents([]);
+    setSelectedId(undefined);
     autoSelected.current = false;
     let src: DataSource;
     if (launched.kind === "replay") src = replaySource();
@@ -132,150 +159,193 @@ export default function App() {
     return state.mode === "paused" ? "paused" : "A-live";
   }, [launched, state.mode]);
 
-  if (!launched) {
-    return (
-      <MissionLauncher
-        onLaunch={(c) => {
-          setLaunched(c);
-          if (c.kind !== "replay") setMissionId(c.missionId);
+  return (
+    <div className="flex h-screen bg-neutral-950 text-neutral-200">
+      <MissionNavigator
+        ref={navRef}
+        activeMissionId={launched ? missionId : undefined}
+        collapsed={navCollapsed}
+        onToggleCollapse={() => setNavCollapsed((c) => !c)}
+        onSelect={(c) => {
+          selectMission(c);
+          navRef.current?.refresh();
+        }}
+        onNew={() => setNewOpen(true)}
+        onObserve={() => setObserveOpen(true)}
+        onReplay={() => setReplayOpen(true)}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        {launched ? (
+          <>
+            <TopbarStatus
+              state={state}
+              selected={selected}
+              modeLabel={modeLabel}
+              runState={isLiveModeA ? runtime?.run_state : undefined}
+            />
+
+            <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">
+              <Button size="sm" variant="ghost" onClick={goHome}>
+                ⌂ Home
+              </Button>
+              <span className="text-neutral-600">|</span>
+              <span className="text-neutral-500">
+                {launched.kind} {missionId ? `· ${missionId}` : ""} {conn && `· ${conn}`}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                {isLiveModeA && (
+                  <StopPauseControls
+                    missionId={missionId}
+                    runState={runtime?.run_state}
+                    onChanged={refreshRuntime}
+                  />
+                )}
+                <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
+                  ⑂ Fork from {selected?.id ?? "node"}
+                </Button>
+              </div>
+            </div>
+
+            {/* live steering surface — Mode-A live only (CONTRACT §5.1 / §9) */}
+            {isLiveModeA && pendingApproval && (
+              <ApprovalGate
+                missionId={missionId}
+                pending={pendingApproval}
+                onResolved={refreshRuntime}
+              />
+            )}
+
+            {/* main 3-column workspace */}
+            <div className="grid min-h-0 flex-1 grid-cols-12 gap-2 p-2">
+              {/* left: trajectory graph */}
+              <Card className="col-span-5 flex min-h-0 flex-col">
+                <CardHeader>
+                  <CardTitle>Trajectory Graph</CardTitle>
+                  <span className="text-[10px] text-neutral-500">
+                    {state.experiments.length} nodes · badged by operator · colored by status
+                  </span>
+                </CardHeader>
+                <div className="min-h-0 flex-1">
+                  <TrajectoryGraph state={state} selectedId={selectedId} onSelect={setSelectedId} />
+                </div>
+              </Card>
+
+              {/* center: node view triad + metrics */}
+              <Card className="col-span-4 flex min-h-0 flex-col">
+                <CardHeader>
+                  <CardTitle>Node View</CardTitle>
+                  <div className="flex gap-1">
+                    {(["details", "diff", "metrics", "compare", "leaderboard"] as Tab[]).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setTab(t)}
+                        className={cn(
+                          "rounded px-2 py-0.5 text-[11px] capitalize",
+                          tab === t
+                            ? "bg-sky-600 text-white"
+                            : "text-neutral-400 hover:bg-neutral-800"
+                        )}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </CardHeader>
+                <div className="min-h-0 flex-1 overflow-auto">
+                  {tab === "details" && <ExperimentDetails exp={selected} />}
+                  {tab === "diff" && <DiffViewer exp={selected} />}
+                  {tab === "metrics" && <MetricsChart exp={selected} metricName={metricName} />}
+                  {tab === "compare" && (
+                    <CompareView state={state} selectedId={selectedId} onSelect={setSelectedId} />
+                  )}
+                  {tab === "leaderboard" && (
+                    <Leaderboard state={state} selectedId={selectedId} onSelect={setSelectedId} />
+                  )}
+                </div>
+              </Card>
+
+              {/* right: research memory (hero) + event stream */}
+              <div className="col-span-3 flex min-h-0 flex-col gap-2">
+                <Card className="flex min-h-0 flex-[3] flex-col">
+                  <CardHeader>
+                    <CardTitle>🧠 Research Memory</CardTitle>
+                    <span className="text-[10px] text-neutral-500">
+                      {state.constraints.length} constraints
+                    </span>
+                  </CardHeader>
+                  <div className="min-h-0 flex-1 overflow-auto">
+                    <ResearchMemoryPanel
+                      constraints={state.constraints}
+                      highlightId={highlightConstraint}
+                      onSelectExperiment={setSelectedId}
+                    />
+                  </div>
+                </Card>
+                {isLiveModeA && (
+                  <Card className="flex flex-none flex-col">
+                    <CardHeader>
+                      <CardTitle>✍ Instruct</CardTitle>
+                      <span className="text-[10px] text-neutral-500">mid-run guidance</span>
+                    </CardHeader>
+                    <div className="overflow-auto">
+                      <InstructBox missionId={missionId} onSent={refreshRuntime} />
+                    </div>
+                  </Card>
+                )}
+                <Card className="flex min-h-0 flex-[2] flex-col">
+                  <CardHeader>
+                    <CardTitle>Event Stream</CardTitle>
+                    <span className="text-[10px] text-neutral-500">{state.events.length}</span>
+                  </CardHeader>
+                  <div className="min-h-0 flex-1">
+                    <EventStream events={state.events} />
+                  </div>
+                </Card>
+              </div>
+            </div>
+
+            <ForkDialog
+              missionId={missionId}
+              parent={selected}
+              open={forkOpen}
+              onClose={() => setForkOpen(false)}
+              executes={isLiveModeA}
+            />
+          </>
+        ) : (
+          <EmptyState
+            onNew={() => setNewOpen(true)}
+            onObserve={() => setObserveOpen(true)}
+            onReplay={() => setReplayOpen(true)}
+          />
+        )}
+      </div>
+
+      {/* entry-point modals (shared by the rail header + the empty-state hero) */}
+      <NewMissionModal
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        onCreated={(c) => {
+          selectMission(c);
+          navRef.current?.refresh();
         }}
       />
-    );
-  }
-
-  return (
-    <div className="flex h-screen flex-col bg-neutral-950 text-neutral-200">
-      <TopbarStatus
-        state={state}
-        selected={selected}
-        modeLabel={modeLabel}
-        runState={isLiveModeA ? runtime?.run_state : undefined}
+      <ObserveModal
+        open={observeOpen}
+        onClose={() => setObserveOpen(false)}
+        onObserve={(c) => {
+          selectMission(c);
+          navRef.current?.refresh();
+        }}
       />
-
-      <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">
-        <Button size="sm" variant="ghost" onClick={() => setLaunched(null)}>
-          ← Missions
-        </Button>
-        <span className="text-neutral-600">|</span>
-        <span className="text-neutral-500">
-          {launched.kind} {missionId ? `· ${missionId}` : ""} {conn && `· ${conn}`}
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          {isLiveModeA && (
-            <StopPauseControls
-              missionId={missionId}
-              runState={runtime?.run_state}
-              onChanged={refreshRuntime}
-            />
-          )}
-          <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
-            ⑂ Fork from {selected?.id ?? "node"}
-          </Button>
-        </div>
-      </div>
-
-      {/* live steering surface — Mode-A live only (CONTRACT §5.1 / §9) */}
-      {isLiveModeA && pendingApproval && (
-        <ApprovalGate
-          missionId={missionId}
-          pending={pendingApproval}
-          onResolved={refreshRuntime}
-        />
-      )}
-
-      {/* main 3-column workspace */}
-      <div className="grid min-h-0 flex-1 grid-cols-12 gap-2 p-2">
-        {/* left: trajectory graph */}
-        <Card className="col-span-5 flex min-h-0 flex-col">
-          <CardHeader>
-            <CardTitle>Trajectory Graph</CardTitle>
-            <span className="text-[10px] text-neutral-500">
-              {state.experiments.length} nodes · badged by operator · colored by status
-            </span>
-          </CardHeader>
-          <div className="min-h-0 flex-1">
-            <TrajectoryGraph state={state} selectedId={selectedId} onSelect={setSelectedId} />
-          </div>
-        </Card>
-
-        {/* center: node view triad + metrics */}
-        <Card className="col-span-4 flex min-h-0 flex-col">
-          <CardHeader>
-            <CardTitle>Node View</CardTitle>
-            <div className="flex gap-1">
-              {(["details", "diff", "metrics", "compare", "leaderboard"] as Tab[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={cn(
-                    "rounded px-2 py-0.5 text-[11px] capitalize",
-                    tab === t
-                      ? "bg-sky-600 text-white"
-                      : "text-neutral-400 hover:bg-neutral-800"
-                  )}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </CardHeader>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {tab === "details" && <ExperimentDetails exp={selected} />}
-            {tab === "diff" && <DiffViewer exp={selected} />}
-            {tab === "metrics" && <MetricsChart exp={selected} metricName={metricName} />}
-            {tab === "compare" && (
-              <CompareView state={state} selectedId={selectedId} onSelect={setSelectedId} />
-            )}
-            {tab === "leaderboard" && (
-              <Leaderboard state={state} selectedId={selectedId} onSelect={setSelectedId} />
-            )}
-          </div>
-        </Card>
-
-        {/* right: research memory (hero) + event stream */}
-        <div className="col-span-3 flex min-h-0 flex-col gap-2">
-          <Card className="flex min-h-0 flex-[3] flex-col">
-            <CardHeader>
-              <CardTitle>🧠 Research Memory</CardTitle>
-              <span className="text-[10px] text-neutral-500">{state.constraints.length} constraints</span>
-            </CardHeader>
-            <div className="min-h-0 flex-1 overflow-auto">
-              <ResearchMemoryPanel
-                constraints={state.constraints}
-                highlightId={highlightConstraint}
-                onSelectExperiment={setSelectedId}
-              />
-            </div>
-          </Card>
-          {isLiveModeA && (
-            <Card className="flex flex-none flex-col">
-              <CardHeader>
-                <CardTitle>✍ Instruct</CardTitle>
-                <span className="text-[10px] text-neutral-500">mid-run guidance</span>
-              </CardHeader>
-              <div className="overflow-auto">
-                <InstructBox missionId={missionId} onSent={refreshRuntime} />
-              </div>
-            </Card>
-          )}
-          <Card className="flex min-h-0 flex-[2] flex-col">
-            <CardHeader>
-              <CardTitle>Event Stream</CardTitle>
-              <span className="text-[10px] text-neutral-500">{state.events.length}</span>
-            </CardHeader>
-            <div className="min-h-0 flex-1">
-              <EventStream events={state.events} />
-            </div>
-          </Card>
-        </div>
-      </div>
-
-      <ForkDialog
-        missionId={missionId}
-        parent={selected}
-        open={forkOpen}
-        onClose={() => setForkOpen(false)}
-        executes={isLiveModeA}
+      <ReplayGallery
+        open={replayOpen}
+        onClose={() => setReplayOpen(false)}
+        onSelect={(c) => {
+          selectMission(c);
+          navRef.current?.refresh();
+        }}
       />
     </div>
   );

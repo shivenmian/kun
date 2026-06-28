@@ -11,6 +11,13 @@ import { parseJsonl } from "../state/eventReducer";
 
 export const API_BASE = "/api";
 
+/** How a mission is opened in the cockpit shell. The single-reducer data flow keys off this:
+ *  "replay" → static JSONL; "live"/"observe" → hydrate + SSE (live steering only for "live"). */
+export type LaunchChoice =
+  | { kind: "replay" }
+  | { kind: "live"; missionId: string }
+  | { kind: "observe"; missionId: string };
+
 export interface EventSink {
   onBatch: (events: KunEvent[]) => void; // initial hydrate (ordered)
   onAppend: (event: KunEvent) => void; // live appended event
@@ -146,6 +153,10 @@ export interface MissionSummary {
   experiments_count?: number | null;
   best?: { experiment_id?: string; metric?: { name?: string; value?: number } } | null;
   updated_at?: string | null;
+  // §5.2 steering flags (reuse §9.1/§9.2 derivation). Read defensively — older
+  // backends omit them, so undefined just means "unknown / no badge".
+  approval_required?: boolean | null;
+  pending_approval?: boolean | null;
 }
 
 /** List every known mission as summary rows (CONTRACT §5.2). Tolerant of the
@@ -175,6 +186,10 @@ export async function getMissions(): Promise<MissionSummary[]> {
               typeof o.experiments_count === "number" ? o.experiments_count : null,
             best: (o.best as MissionSummary["best"]) ?? null,
             updated_at: (o.updated_at as string | null) ?? null,
+            approval_required:
+              typeof o.approval_required === "boolean" ? o.approval_required : null,
+            pending_approval:
+              typeof o.pending_approval === "boolean" ? o.pending_approval : null,
           };
         }
         return null;
@@ -193,8 +208,15 @@ export async function createMission(payload: Record<string, unknown>): Promise<R
   });
 }
 
-export async function startMission(missionId: string): Promise<Response> {
-  return fetch(`${API_BASE}/missions/${missionId}/start`, { method: "POST" });
+export async function startMission(
+  missionId: string,
+  mode: "live" | "replay" = "live"
+): Promise<Response> {
+  return fetch(`${API_BASE}/missions/${missionId}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, started_by: "user" }),
+  });
 }
 
 // ---- P1 live-steering surface (CONTRACT §5.1 / §9) ----
