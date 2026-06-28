@@ -41,7 +41,11 @@ from app.loop import decider as DEC  # noqa: E402
 from app.loop import planner as PL  # noqa: E402
 from app.loop import runner as RUN  # noqa: E402
 from app.loop.llm_client import LLMClient  # noqa: E402
-from app.loop.patcher import apply_config_patch  # noqa: E402
+from app.loop.patcher import (  # noqa: E402
+    agent_edit,
+    apply_config_patch,
+    select_patcher,
+)
 from app.loop.schemas import Constraint  # noqa: E402
 from app.loop import steering as ST  # noqa: E402
 
@@ -202,6 +206,16 @@ def run_mission(
     target = objective.get("target")
     allowed_changes = spec.get("allowed_changes", [])
 
+    # --- patcher selection (pluggable; doc 08 §1/§7) -------------------------
+    # Default = config-patch (P0 unchanged). agent-edit edits the mission's
+    # editable_files (copied out of examples/<adapter>/ into a per-experiment
+    # sandbox); any flake falls back to config-patch for that experiment.
+    patcher_name = select_patcher(spec)
+    editable_files = spec.get("editable_files", []) or []
+    adapter = spec.get("adapter", "tiny_cnn")
+    source_dir = os.path.join(REPO_ROOT, "examples", adapter)
+    editor_model = os.environ.get("KUN_EDITOR_MODEL", "sonnet")
+
     with open(BASELINE_CONFIG) as f:
         baseline_config = yaml.safe_load(f)
 
@@ -209,7 +223,8 @@ def run_mission(
 
     llm = LLMClient(model)
     path_kind = "LLM" if llm.available() else "heuristic"
-    print(f"[run_mission] {mission_id} driver={path_kind} model={model}", flush=True)
+    print(f"[run_mission] {mission_id} driver={path_kind} model={model} "
+          f"patcher={patcher_name}", flush=True)
 
     # --- mission_created + mission_started (idempotent — skip if already in the log) ---
     if "mission_created" not in existing_types:
@@ -370,18 +385,52 @@ def run_mission(
                 prop_payload["operator"] = prop.operator
 
         # --- patch + file_diff_created ---
+        # config-patch ALWAYS runs: it writes the config.yaml the runner consumes
+        # (runner unchanged) AND is the fallback diff. When agent-edit is selected
+        # we additionally edit real code in an isolated sandbox and, on success,
+        # emit THAT real diff instead of the config diff (doc 08).
         workspace = os.path.join(runs_dir, exp_id)
         if parent_id is None:
             base_label = _rel(BASELINE_CONFIG)
         else:
             base_label = _rel(os.path.join(runs_dir, parent_id, "config.yaml"))
         new_label = _rel(os.path.join(workspace, "config.yaml"))
-        config_path, diff, _ = apply_config_patch(
+        config_path, config_diff, _ = apply_config_patch(
             base_config=parent_config, changes=prop.changes,
             workspace_dir=workspace, base_file_path=base_label, new_file_path=new_label,
         )
-        emit("file_diff_created",
-             {"file_path": new_label, "base_file_path": base_label, "diff": diff},
+
+        diff_payload = {
+            "file_path": new_label, "base_file_path": base_label, "diff": config_diff,
+        }
+        if patcher_name == "agent-edit":
+            edit_ws = os.path.join(workspace, "edit")
+            pr = agent_edit.apply(
+                edit_ws, prop, ctx_constraints, editable_files, editor_model,
+                source_dir=source_dir,
+            )
+            if pr.ok:
+                first = pr.files_changed[0] if pr.files_changed else (
+                    editable_files[0] if editable_files else "edited"
+                )
+                diff_payload = {
+                    "file_path": _rel(os.path.join(edit_ws, first)),
+                    "base_file_path": os.path.join(_rel(source_dir), first),
+                    "diff": pr.diff,
+                    "files_changed": pr.files_changed,
+                    "patcher": "agent-edit",
+                    "commit_sha": pr.commit_sha,
+                    "editor_cost_usd": pr.cost_usd,
+                    "editor_session_id": pr.session_id,
+                }
+                print(f"[patcher] {exp_id} agent-edit OK files={pr.files_changed} "
+                      f"cost={pr.cost_usd}", flush=True)
+            else:
+                # Flake (no key/timeout/no-diff/out-of-scope/broken) -> fall back
+                # to config-patch for THIS experiment; loop keeps running (§7).
+                print(f"[patcher] {exp_id} agent-edit FAILED ({pr.error}) -> "
+                      "falling back to config-patch.", flush=True)
+        emit("file_diff_created", diff_payload,
              experiment_id=exp_id, branch_id=branch_id)
 
         # --- run (emits experiment_started, metric_logged*, finished/failed) ---
