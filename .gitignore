@@ -1,6 +1,12 @@
 # Generated mission event logs / artifacts (the flight recorder writes here)
 runs/
 
+# Stray JSONL artifacts (per-run metrics, loose event logs) are runtime-only.
+# Committed replay assets are the exception — they're the demo's source of truth.
+*.jsonl
+!examples/replays/*.jsonl
+!web/public/*.jsonl
+
 # Python
 __pycache__/
 *.pyc
