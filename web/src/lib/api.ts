@@ -133,6 +133,58 @@ export async function registerMission(missionId: string, eventsPath?: string): P
   });
 }
 
+// ---- Mission history (CONTRACT §5.2 enriched GET /missions) ----
+
+/** One summary row from the enriched GET /missions (CONTRACT §5.2).
+ *  Every field is optional — the backend builder omits/nulls missing fields and
+ *  WEB consumes this read-only, so the panel must tolerate a partial shape. */
+export interface MissionSummary {
+  mission_id: string;
+  name?: string | null;
+  run_state?: RunState | string | null; // "run" | "paused" | "stopped" | "finished"
+  mode?: "live" | "replay" | "observe" | null;
+  experiments_count?: number | null;
+  best?: { experiment_id?: string; metric?: { name?: string; value?: number } } | null;
+  updated_at?: string | null;
+}
+
+/** List every known mission as summary rows (CONTRACT §5.2). Tolerant of the
+ *  legacy bare-id shape (`missions: ["id", ...]`) and of partial objects. Never
+ *  throws — returns [] on any failure so the panel renders its empty-state. */
+export async function getMissions(): Promise<MissionSummary[]> {
+  try {
+    const r = await fetch(`${API_BASE}/missions`);
+    if (!r.ok) return [];
+    const data = (await r.json()) as unknown;
+    const raw = (data as { missions?: unknown })?.missions;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((m): MissionSummary | null => {
+        // legacy shape: a bare mission_id string
+        if (typeof m === "string") return { mission_id: m };
+        if (m && typeof m === "object") {
+          const o = m as Record<string, unknown>;
+          const id = o.mission_id ?? o.id;
+          if (typeof id !== "string" || !id) return null;
+          return {
+            mission_id: id,
+            name: (o.name as string | null) ?? null,
+            run_state: (o.run_state as string | null) ?? null,
+            mode: (o.mode as MissionSummary["mode"]) ?? null,
+            experiments_count:
+              typeof o.experiments_count === "number" ? o.experiments_count : null,
+            best: (o.best as MissionSummary["best"]) ?? null,
+            updated_at: (o.updated_at as string | null) ?? null,
+          };
+        }
+        return null;
+      })
+      .filter((m): m is MissionSummary => m !== null);
+  } catch {
+    return [];
+  }
+}
+
 export async function createMission(payload: Record<string, unknown>): Promise<Response> {
   return fetch(`${API_BASE}/missions`, {
     method: "POST",
