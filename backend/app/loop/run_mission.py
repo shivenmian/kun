@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
@@ -42,8 +43,15 @@ from app.loop import runner as RUN  # noqa: E402
 from app.loop.llm_client import LLMClient  # noqa: E402
 from app.loop.patcher import apply_config_patch  # noqa: E402
 from app.loop.schemas import Constraint  # noqa: E402
+from app.loop import steering as ST  # noqa: E402
 
 BRANCH_MAIN = "branch_main"
+
+# Control-file poll cadence (s) and approval-gate wall-clock cap (s). The cap is
+# advisory: on timeout the loop KEEPS waiting and logs — it never auto-approves
+# (a forgotten gate must not silently run an unreviewed experiment).
+STEER_POLL_SEC = float(os.environ.get("KUN_STEER_POLL_SEC", "0.25"))
+APPROVAL_TIMEOUT_SEC = float(os.environ.get("KUN_APPROVAL_TIMEOUT_SEC", "1800"))
 DEFAULT_MISSION_YAML = os.path.join(REPO_ROOT, "examples", "tiny_cnn", "mission.yaml")
 BASELINE_CONFIG = os.path.join(REPO_ROOT, "examples", "tiny_cnn", "config.yaml")
 
@@ -82,6 +90,64 @@ def _read_existing(events_path: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _wait_while_paused(control_path: str, mission_id: str,
+                       poll: float = STEER_POLL_SEC) -> str:
+    """Block while ``run_state == pause`` (CONTRACT §9.2). Returns the final
+    run_state once it leaves pause: ``"run"`` (resume) or ``"stop"``."""
+    announced = False
+    while True:
+        ctl = ST.read_control(control_path)
+        if ctl["run_state"] != "pause":
+            if announced:
+                print(f"[run_mission] {mission_id} resumed "
+                      f"(run_state={ctl['run_state']})", flush=True)
+            return ctl["run_state"]
+        if not announced:
+            print(f"[run_mission] {mission_id} PAUSED; polling control.json "
+                  "for resume/stop...", flush=True)
+            announced = True
+        time.sleep(poll)
+
+
+def _wait_for_approval(events_path: str, control_path: str, exp_id: str,
+                       mission_id: str, poll: float = STEER_POLL_SEC,
+                       timeout_sec: float = APPROVAL_TIMEOUT_SEC) -> ST.ApprovalOutcome:
+    """Block at the approval gate for ``exp_id`` until the human approves/rejects
+    it (read from the log) — honoring stop/pause via the control file the whole
+    time (CONTRACT §9.2/§9.3). On the wall-clock cap it logs but KEEPS waiting;
+    it never auto-approves. Returns an :class:`ST.ApprovalOutcome` (``kind`` may
+    be ``"stop"`` if the control file asked the loop to stop while waiting)."""
+    print(f"[run_mission] {mission_id} approval gate: holding {exp_id}, "
+          "awaiting approve/reject...", flush=True)
+    t0 = time.time()
+    warned = 0.0
+    paused = False
+    while True:
+        ctl = ST.read_control(control_path)
+        if ctl["run_state"] == "stop":
+            return ST.ApprovalOutcome("stop")
+        if ctl["run_state"] == "pause":
+            if not paused:
+                print(f"[run_mission] {mission_id} paused while holding {exp_id}.",
+                      flush=True)
+                paused = True
+            time.sleep(poll)
+            continue
+        paused = False
+        outcome = ST.resolve_approval(_read_existing(events_path), exp_id)
+        if outcome is not None:
+            print(f"[run_mission] {mission_id} approval gate: {exp_id} -> "
+                  f"{outcome.kind}", flush=True)
+            return outcome
+        elapsed = time.time() - t0
+        if elapsed > timeout_sec and elapsed - warned >= timeout_sec:
+            print(f"[run_mission] {mission_id} approval for {exp_id} still pending "
+                  f"after {int(elapsed)}s — NOT auto-approving; still waiting.",
+                  flush=True)
+            warned = elapsed
+        time.sleep(poll)
+
+
 def _load_mission(mission: Union[Dict[str, Any], str, None]) -> Dict[str, Any]:
     if isinstance(mission, dict):
         return mission
@@ -101,9 +167,17 @@ def run_mission(
     events_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the full Mode-A loop. Returns the mission_finished payload."""
-    runs_dir = os.path.join(REPO_ROOT, "runs", mission_id)
+    # The control file + per-experiment workspaces live alongside the event log.
+    # With no explicit events_path this is the conventional runs/<id>/ (P0
+    # unchanged); when one is given (tests/integration) everything is colocated
+    # in its directory so a temp dir is fully self-contained.
+    if events_path:
+        runs_dir = os.path.dirname(os.path.abspath(events_path))
+    else:
+        runs_dir = os.path.join(REPO_ROOT, "runs", mission_id)
+        events_path = os.path.join(runs_dir, "events.jsonl")
     os.makedirs(runs_dir, exist_ok=True)
-    events_path = events_path or os.path.join(runs_dir, "events.jsonl")
+    control_path = os.path.join(runs_dir, "control.json")
 
     # When started via the API (POST /missions then /start), the event log already
     # holds mission_created/mission_started — read what's there so we don't double-emit
@@ -181,12 +255,61 @@ def run_mission(
         return merged
 
     exp_i = 0
+    # Instruction ids whose structured `bound` has already been folded into
+    # `active` (so a persistent instruction is not re-added each iteration).
+    applied_instruction_ids: set = set()
     while exp_i < max_experiments:
+        # --- live steering: control file at the TOP of every iteration (§9.2) ---
+        # No control file => default {run, no-approval} => P0 path is unchanged.
+        control = ST.read_control(control_path)
+        if control["run_state"] == "stop":
+            stop_reason = "user_stop"
+            print(f"[run_mission] {mission_id} stop requested -> finishing.",
+                  flush=True)
+            break
+        if control["run_state"] == "pause":
+            if _wait_while_paused(control_path, mission_id) == "stop":
+                stop_reason = "user_stop"
+                break
+            control = ST.read_control(control_path)  # re-read post-resume
+
         exp_id = f"exp_{exp_i:03d}"
+
+        # --- mid-run instructions (§9.3): soft-bias texts + hard bounds -------
+        log_events = _read_existing(events_path)
+        instr_texts = ST.apply_instructions(
+            log_events, exp_i, active, applied_instruction_ids
+        )
+
+        # --- live fork execution (Mode A, §9.3) ------------------------------
+        # An executable fork = a fork_created branch (with its branch_created)
+        # that has no experiments yet AND whose parent node we have run. Run the
+        # next proposal there, pinning the parent + applying any forked bound.
+        branch_id = BRANCH_MAIN
+        force_parent_id: Optional[str] = None
+        ctx_constraints = active
+        pending = ST.next_pending_fork(log_events)
+        if pending is not None and any(
+            n.id == pending.parent_experiment_id for n in nodes
+        ):
+            branch_id = pending.branch_id
+            force_parent_id = pending.parent_experiment_id
+            fork_bound: Optional[Constraint] = None
+            if pending.constraint:
+                try:
+                    fork_bound = Constraint.model_validate(pending.constraint)
+                except Exception:
+                    fork_bound = None
+            ctx_constraints = active + ([fork_bound] if fork_bound else [])
+            print(f"[run_mission] {mission_id} executing fork on {branch_id} "
+                  f"off {force_parent_id} (constraint={fork_bound.constraint_id if fork_bound else None})",
+                  flush=True)
+
         ctx = PL.PlanContext(
-            nodes=nodes, constraints=active, allowed_changes=allowed_changes,
+            nodes=nodes, constraints=ctx_constraints, allowed_changes=allowed_changes,
             baseline_config=baseline_config, objective=objective,
-            soft_lessons=soft_lessons,
+            soft_lessons=soft_lessons, instructions=instr_texts,
+            branch_id=branch_id, force_parent_id=force_parent_id,
         )
         res = PL.propose(ctx, llm=llm)
         prop = res.proposal
@@ -198,7 +321,7 @@ def run_mission(
 
         parent_id = res.parent_id
         parent_config = res.parent_config
-        env = {"experiment_id": exp_id, "branch_id": BRANCH_MAIN,
+        env = {"experiment_id": exp_id, "branch_id": branch_id,
                "parent_experiment_id": parent_id}
 
         # --- experiment_proposed ---
@@ -215,6 +338,37 @@ def run_mission(
             print(f"[planner] {exp_id} hard-rejected (bound): "
                   f"{res.rejected_candidates} -> chose {prop.changes}", flush=True)
 
+        # --- approval gate (§9.3): hold the proposed node until a human acts ---
+        if control["approval_required"]:
+            outcome = _wait_for_approval(events_path, control_path, exp_id, mission_id)
+            if outcome.kind == "stop":
+                stop_reason = "user_stop"
+                break
+            if outcome.kind == "rejected":
+                # Human rejected with no replacement -> mark the node rejected
+                # and move on to the next proposal (do NOT run it).
+                emit("decision_created",
+                     {"decision": "reject",
+                      "rationale": "Rejected by human at the approval gate.",
+                      "next_action": {"type": "propose_next_experiment",
+                                      "parent_experiment_id": best_id}},
+                     actor={"type": "human", "name": "user"}, **env)
+                nodes.append(PL.NodeView(
+                    id=exp_id, operator=prop.operator, status="rejected",
+                    config={**parent_config, **prop.changes}, changes=prop.changes,
+                    parent_id=parent_id, branch_id=branch_id,
+                ))
+                exp_i += 1
+                continue
+            if outcome.kind in ("approved_edited", "rejected_replacement"):
+                # Run the human's changes verbatim (human authority overrides the
+                # planner; a replacement is recorded as a human `improve`).
+                prop.changes = outcome.changes or {}
+                if outcome.kind == "rejected_replacement":
+                    prop.operator = "improve"
+                prop_payload["changes"] = prop.changes
+                prop_payload["operator"] = prop.operator
+
         # --- patch + file_diff_created ---
         workspace = os.path.join(runs_dir, exp_id)
         if parent_id is None:
@@ -228,7 +382,7 @@ def run_mission(
         )
         emit("file_diff_created",
              {"file_path": new_label, "base_file_path": base_label, "diff": diff},
-             experiment_id=exp_id, branch_id=BRANCH_MAIN)
+             experiment_id=exp_id, branch_id=branch_id)
 
         # --- run (emits experiment_started, metric_logged*, finished/failed) ---
         result = RUN.run_experiment(
@@ -289,7 +443,7 @@ def run_mission(
         }
         emit("evaluation_created", eval_payload,
              actor=_agent_actor("evaluator", model),
-             experiment_id=exp_id, branch_id=BRANCH_MAIN)
+             experiment_id=exp_id, branch_id=branch_id)
 
         # --- record node + update best ---
         node = PL.NodeView(
@@ -297,6 +451,7 @@ def run_mission(
             config=full_config, changes=prop.changes,
             final_metrics=result.get("final_metrics", {}),
             failure_type=result.get("failure_type"), parent_id=parent_id,
+            branch_id=branch_id,
         )
         nodes.append(node)
         prev_best_value = best_value
@@ -317,7 +472,7 @@ def run_mission(
         emit("decision_created",
              {"decision": decision.decision, "rationale": decision.rationale,
               "next_action": decision.next_action.model_dump()},
-             experiment_id=exp_id, branch_id=BRANCH_MAIN)
+             experiment_id=exp_id, branch_id=branch_id)
 
         # --- positive Σ-summary: promote with a real metric gain -> SOFT lesson ---
         if (decision.decision == "promote" and val is not None
