@@ -33,14 +33,15 @@ kun_log("mission_started", {"mode": "live", "started_by": "external_script"}, mi
 
 for i in range(5):
     eid = f"ext_{i:03d}"
+    parent = f"ext_{i - 1:03d}" if i else None  # chain nodes so the cockpit draws edges
     acc = round(0.85 + 0.012 * i + random.uniform(-0.004, 0.004), 4)  # pretend our optimizer improved
+    env = {"mission_id": MID, "experiment_id": eid, "parent_experiment_id": parent}
     kun_log("experiment_proposed",
             {"operator": "improve", "hypothesis": f"my tweak #{i}", "changes": {"lr": 0.003 / (i + 1)}},
-            mission_id=MID, experiment_id=eid)
-    kun_log("experiment_started", {"command": "my_own_trainer.py"}, mission_id=MID, experiment_id=eid)
-    kun_log("metric_logged", {"name": "val_accuracy", "value": acc, "step": 1}, mission_id=MID, experiment_id=eid)
-    kun_log("experiment_finished", {"status": "success", "final_metrics": {"val_accuracy": acc}},
-            mission_id=MID, experiment_id=eid)
+            **env)
+    kun_log("experiment_started", {"command": "my_own_trainer.py"}, **env)
+    kun_log("metric_logged", {"name": "val_accuracy", "value": acc, "step": 1}, **env)
+    kun_log("experiment_finished", {"status": "success", "final_metrics": {"val_accuracy": acc}}, **env)
     best = max(best, acc)
     time.sleep(1.5)  # so nodes appear live in the cockpit
 

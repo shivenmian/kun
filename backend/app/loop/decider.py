@@ -33,14 +33,27 @@ def decide(
             next_action=NextAction(parent_experiment_id=best_valid_id),
         )
 
-    if evaluation.verdict == "promote":
+    # This node is the current best (the baseline, or a new high-water mark the
+    # evaluator may have phrased as "neutral") -> promote it. run_mission updates
+    # best_valid_id BEFORE calling decide, so best_valid_id == experiment_id means
+    # "this node is now the best valid node."
+    if best_valid_id == experiment_id or evaluation.verdict == "promote":
         return DecisionOut(
             decision="promote",
-            rationale=evaluation.summary,
+            rationale=evaluation.summary or "New best valid node.",
             next_action=NextAction(parent_experiment_id=experiment_id),
         )
 
-    # Did not improve -> reject this node, keep exploring from the best valid one.
+    # Ran fine but didn't beat the best. "neutral" = no regression -> keep the node
+    # valid and keep exploring (don't paint it red); only a worse result rejects.
+    if evaluation.verdict == "neutral":
+        return DecisionOut(
+            decision="continue_branch",
+            rationale=evaluation.summary or "No improvement over best; continue exploring.",
+            next_action=NextAction(parent_experiment_id=best_valid_id or experiment_id),
+        )
+
+    # Worse than the best -> reject this node, keep exploring from the best valid one.
     return DecisionOut(
         decision="reject",
         rationale=evaluation.summary,

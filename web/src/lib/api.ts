@@ -84,16 +84,22 @@ export function liveSource(missionId: string): DataSource {
           // 2) live tail
           es = new EventSource(`${API_BASE}/missions/${missionId}/stream`);
           es.onopen = () => sink.onOpen?.();
-          es.onmessage = (m) => {
+          const handleFrame = (m: MessageEvent) => {
             try {
               const evt = JSON.parse(m.data) as KunEvent;
               if (evt.event_id && seen.has(evt.event_id)) return;
               if (evt.event_id) seen.add(evt.event_id);
               sink.onAppend(evt);
             } catch {
-              /* ignore unparseable SSE frame */
+              /* ignore unparseable SSE frame (e.g. the "ready" marker) */
             }
           };
+          // The backend tags appended events as `event: kun` (CONTRACT §5 stream),
+          // which does NOT trigger es.onmessage — that only fires for unnamed
+          // `message` frames. Listen for the named event AND keep onmessage as a
+          // fallback so live tail works regardless of how the server names frames.
+          es.addEventListener("kun", handleFrame as EventListener);
+          es.onmessage = handleFrame;
           es.onerror = () => sink.onError?.("SSE connection error");
         });
 
