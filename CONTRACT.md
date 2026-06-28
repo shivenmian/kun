@@ -271,8 +271,10 @@ Pure read, derived from the event log (`build_state`) + the control file. Shape 
 }
 ```
 - `pending_approval` is non-null only when the loop has emitted `experiment_proposed` for a
-  node that has no matching `experiment_approved`/`experiment_rejected` yet **and**
-  `approval_required` is on. "pending" = emitted-but-not-yet-consumed (no later event resolves it).
+  node that **is still in `proposed` status** (not yet started/run), has no matching
+  `experiment_approved`/`experiment_rejected` yet, **and** `approval_required` is on. "pending"
+  = emitted-but-not-yet-consumed (no later event resolves it). The still-`proposed` clause keeps
+  an already-run experiment that merely carried a proposal from falsely showing as pending.
 - Mode-B external loops poll this at the top of each iteration and obey (advisory-but-honored).
 
 ### 9.2 Control file `runs/<id>/control.json` — imperative loop state (NOT an event)
@@ -299,9 +301,9 @@ file is absent, so **P0 missions are unchanged**):
 - **Approval gate.** With `approval_required`, the loop holds the just-`proposed` node until it
   reads (from its own log) one of: `experiment_approved{edited:false}` → run as proposed;
   `experiment_approved{edited:true, ...}` with `changes` (or `payload.changes`) → run the human's
-  edited `changes`; `experiment_rejected{replacement_changes:{}}` → run the replacement (a human
-  `improve`); `experiment_rejected` with no replacement → mark the node `rejected`
-  (`decision_created{decision:"reject"}`) and move to the next proposal.
+  edited `changes`; `experiment_rejected` with a **non-empty** `replacement_changes` → run the
+  replacement (a human `improve`); `experiment_rejected` with **no/empty** `replacement_changes`
+  → mark the node `rejected` (`decision_created{decision:"reject"}`) and move to the next proposal.
 - **Mid-run instruct.** `instruction_added` enters mission state; the planner injects its `text`
   into the prompt for proposals with `experiment_id >= applies_from` (soft bias), and if the
   payload carries a structured `bound`, it ALSO hard-rejects like a constraint (§3 / doc 03).
