@@ -6,7 +6,7 @@
 // The backend HTTP surface is CONTRACT §5; all paths are prefixed with /api so the
 // Vite dev proxy forwards them to http://localhost:8000 (see vite.config.ts).
 
-import type { KunEvent } from "../types";
+import type { Constraint, KunEvent } from "../types";
 import { parseJsonl } from "../state/eventReducer";
 
 export const API_BASE = "/api";
@@ -143,4 +143,104 @@ export async function createMission(payload: Record<string, unknown>): Promise<R
 
 export async function startMission(missionId: string): Promise<Response> {
   return fetch(`${API_BASE}/missions/${missionId}/start`, { method: "POST" });
+}
+
+// ---- P1 live-steering surface (CONTRACT §5.1 / §9) ----
+
+/** Loop run-state as reported by GET /state (CONTRACT §9.1). */
+export type RunState = "run" | "paused" | "stopped" | "finished";
+
+/** The pending experiment awaiting human approval (CONTRACT §9.1 pending_approval). */
+export interface PendingApproval {
+  experiment_id: string;
+  changes?: Record<string, unknown>;
+  operator?: string;
+  hypothesis?: string;
+}
+
+/** Feedback / hydrate object from GET /missions/{id}/state (CONTRACT §9.1).
+ *  Kept tolerant: every field is optional so a partial backend shape never crashes the UI. */
+export interface MissionRuntimeState {
+  mission_id?: string;
+  run_state?: RunState;
+  approval_required?: boolean;
+  active_constraints?: Constraint[];
+  soft_lessons?: Constraint[];
+  pending_approval?: PendingApproval | null;
+  pending_instructions?: Array<{
+    instruction_id: string;
+    text: string;
+    applies_from?: string;
+    bound?: Record<string, unknown>;
+  }>;
+  pending_forks?: Array<{
+    branch_id: string;
+    parent_experiment_id?: string;
+    instruction?: string;
+    constraint?: unknown;
+  }>;
+  best?: { experiment_id: string; metric: { name: string; value: number } };
+}
+
+/** Pure read of the feedback channel. Returns null on any failure (endpoint may not
+ *  exist yet — the API subagent lands it in parallel), so callers stay graceful. */
+export async function getMissionState(missionId: string): Promise<MissionRuntimeState | null> {
+  try {
+    const r = await fetch(`${API_BASE}/missions/${missionId}/state`);
+    if (!r.ok) return null;
+    return (await r.json()) as MissionRuntimeState;
+  } catch {
+    return null;
+  }
+}
+
+/** Inject mid-run guidance → emits instruction_added (CONTRACT §5.1 / §9.3). */
+export async function instructMission(
+  missionId: string,
+  body: { text: string; applies_from?: string; bound?: Record<string, unknown> }
+): Promise<Response> {
+  return fetch(`${API_BASE}/missions/${missionId}/instruct`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Approve a proposed experiment → emits experiment_approved (CONTRACT §5.1 / §9.3). */
+export async function approveExperiment(
+  missionId: string,
+  experimentId: string,
+  body: { edited?: boolean; changes?: Record<string, unknown>; note?: string } = {}
+): Promise<Response> {
+  return fetch(`${API_BASE}/missions/${missionId}/experiments/${experimentId}/approve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Reject a proposed experiment → emits experiment_rejected (CONTRACT §5.1 / §9.3). */
+export async function rejectExperiment(
+  missionId: string,
+  experimentId: string,
+  body: { reason: string; replacement_changes?: Record<string, unknown> }
+): Promise<Response> {
+  return fetch(`${API_BASE}/missions/${missionId}/experiments/${experimentId}/reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Stop / pause / resume the Mode-A loop → writes control.json (CONTRACT §5.1 / §9.2). */
+export async function controlMission(
+  missionId: string,
+  action: "stop" | "pause" | "resume",
+  extra?: { approval_required?: boolean; reason?: string }
+): Promise<Response> {
+  return fetch(`${API_BASE}/missions/${missionId}/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, ...extra }),
+  });
 }

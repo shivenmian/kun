@@ -11,11 +11,14 @@ export function ForkDialog({
   parent,
   open,
   onClose,
+  executes = false,
 }: {
   missionId?: string;
   parent?: Experiment;
   open: boolean;
   onClose: () => void;
+  /** Live Mode-A: the loop will EXECUTE the fork (CONTRACT §9.3), not just record it. */
+  executes?: boolean;
 }) {
   const [instruction, setInstruction] = useState("");
   const [param, setParam] = useState("");
@@ -46,7 +49,13 @@ export function ForkDialog({
         instruction,
         constraint,
       });
-      setStatus(r.ok ? "Fork recorded — watch the graph for the new branch." : `Error ${r.status}`);
+      setStatus(
+        r.ok
+          ? executes
+            ? "Fork queued — the loop will EXECUTE the next proposal on the new branch."
+            : "Fork recorded — watch the graph for the new branch."
+          : `Error ${r.status}`
+      );
     } catch (e) {
       setStatus(`Request failed: ${String(e)}`);
     }
@@ -63,6 +72,13 @@ export function ForkDialog({
             ✕
           </button>
         </div>
+
+        {executes && (
+          <div className="mb-3 rounded border border-emerald-700/50 bg-emerald-950/30 px-2 py-1.5 text-[11px] text-emerald-300">
+            Live Mode-A: this fork will EXECUTE — the loop runs the next proposal on the new
+            branch (not record-only).
+          </div>
+        )}
 
         <label className="mb-1 block text-[10px] uppercase tracking-wide text-neutral-500">
           Instruction
@@ -110,7 +126,7 @@ export function ForkDialog({
             Cancel
           </Button>
           <Button onClick={submit} disabled={!instruction}>
-            Fork
+            {executes ? "Fork & run" : "Fork"}
           </Button>
         </div>
       </div>

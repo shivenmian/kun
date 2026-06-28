@@ -13,6 +13,11 @@ import { ResearchMemoryPanel } from "./components/ResearchMemoryPanel";
 import { EventStream } from "./components/EventStream";
 import { ForkDialog } from "./components/ForkDialog";
 import { MissionLauncher, type LaunchChoice } from "./components/MissionLauncher";
+import { ApprovalGate } from "./components/ApprovalGate";
+import { InstructBox } from "./components/InstructBox";
+import { StopPauseControls } from "./components/StopPauseControls";
+import { useMissionRuntime } from "./state/useMissionRuntime";
+import type { PendingApproval } from "./lib/api";
 import { Card, CardHeader, CardTitle, Button } from "./components/ui/primitives";
 import { cn } from "./lib/utils";
 
@@ -84,6 +89,42 @@ export default function App() {
   const selected = selectedId ? state.experimentsById[selectedId] : undefined;
   const metricName = state.mission?.objective?.metric ?? "val_accuracy";
 
+  // Live steering is only for a Mode-A live mission (?live=<id>), never replay/observe.
+  const isLiveModeA = launched?.kind === "live";
+  const { runtime, refresh: refreshRuntime } = useMissionRuntime(missionId, isLiveModeA);
+
+  // Detect the pending approval to gate on. Primary source is GET /state (§9.1).
+  // Defensive fallback: if approval is on but the backend didn't populate pending_approval,
+  // derive the latest still-unresolved experiment_proposed from the event stream.
+  const pendingApproval = useMemo<PendingApproval | null>(() => {
+    if (!isLiveModeA) return null;
+    if (runtime?.pending_approval) return runtime.pending_approval;
+    if (!runtime?.approval_required) return null;
+    const resolved = new Set<string>();
+    let lastProposed: PendingApproval | null = null;
+    for (const e of state.events) {
+      if (e.type === "experiment_approved" || e.type === "experiment_rejected") {
+        if (e.experiment_id) resolved.add(e.experiment_id);
+      } else if (e.type === "experiment_proposed" && e.experiment_id) {
+        const pl = (e.payload ?? {}) as Record<string, unknown>;
+        lastProposed = {
+          experiment_id: e.experiment_id,
+          changes: pl.changes as Record<string, unknown> | undefined,
+          operator: pl.operator as string | undefined,
+          hypothesis: pl.hypothesis as string | undefined,
+        };
+      }
+    }
+    if (
+      lastProposed &&
+      !resolved.has(lastProposed.experiment_id) &&
+      state.experimentsById[lastProposed.experiment_id]?.status === "proposed"
+    ) {
+      return lastProposed;
+    }
+    return null;
+  }, [isLiveModeA, runtime, state.events, state.experimentsById]);
+
   const modeLabel = useMemo(() => {
     if (!launched) return "—";
     if (launched.kind === "replay") return "replay";
@@ -104,7 +145,12 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-neutral-950 text-neutral-200">
-      <TopbarStatus state={state} selected={selected} modeLabel={modeLabel} />
+      <TopbarStatus
+        state={state}
+        selected={selected}
+        modeLabel={modeLabel}
+        runState={isLiveModeA ? runtime?.run_state : undefined}
+      />
 
       <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">
         <Button size="sm" variant="ghost" onClick={() => setLaunched(null)}>
@@ -114,12 +160,28 @@ export default function App() {
         <span className="text-neutral-500">
           {launched.kind} {missionId ? `· ${missionId}` : ""} {conn && `· ${conn}`}
         </span>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex items-center gap-2">
+          {isLiveModeA && (
+            <StopPauseControls
+              missionId={missionId}
+              runState={runtime?.run_state}
+              onChanged={refreshRuntime}
+            />
+          )}
           <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
             ⑂ Fork from {selected?.id ?? "node"}
           </Button>
         </div>
       </div>
+
+      {/* live steering surface — Mode-A live only (CONTRACT §5.1 / §9) */}
+      {isLiveModeA && pendingApproval && (
+        <ApprovalGate
+          missionId={missionId}
+          pending={pendingApproval}
+          onResolved={refreshRuntime}
+        />
+      )}
 
       {/* main 3-column workspace */}
       <div className="grid min-h-0 flex-1 grid-cols-12 gap-2 p-2">
@@ -185,6 +247,17 @@ export default function App() {
               />
             </div>
           </Card>
+          {isLiveModeA && (
+            <Card className="flex flex-none flex-col">
+              <CardHeader>
+                <CardTitle>✍ Instruct</CardTitle>
+                <span className="text-[10px] text-neutral-500">mid-run guidance</span>
+              </CardHeader>
+              <div className="overflow-auto">
+                <InstructBox missionId={missionId} onSent={refreshRuntime} />
+              </div>
+            </Card>
+          )}
           <Card className="flex min-h-0 flex-[2] flex-col">
             <CardHeader>
               <CardTitle>Event Stream</CardTitle>
@@ -202,6 +275,7 @@ export default function App() {
         parent={selected}
         open={forkOpen}
         onClose={() => setForkOpen(false)}
+        executes={isLiveModeA}
       />
     </div>
   );
