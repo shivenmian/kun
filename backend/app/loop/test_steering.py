@@ -184,7 +184,7 @@ def _fake_runner_factory(metrics=None):
     metrics = metrics or {"val_accuracy": 0.90, "train_accuracy": 0.91, "runtime_sec": 0.1}
     seen = []
 
-    def fake(*, config_path, workspace_dir, timeout_sec, emit, envelope):
+    def fake(*, config_path, workspace_dir, timeout_sec, emit, envelope, **_kw):
         import yaml
         with open(config_path) as f:
             cfg = yaml.safe_load(f)

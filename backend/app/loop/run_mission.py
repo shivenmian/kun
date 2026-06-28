@@ -59,6 +59,7 @@ STEER_POLL_SEC = float(os.environ.get("KUN_STEER_POLL_SEC", "0.25"))
 APPROVAL_TIMEOUT_SEC = float(os.environ.get("KUN_APPROVAL_TIMEOUT_SEC", "1800"))
 DEFAULT_MISSION_YAML = os.path.join(REPO_ROOT, "examples", "tiny_cnn", "mission.yaml")
 BASELINE_CONFIG = os.path.join(REPO_ROOT, "examples", "tiny_cnn", "config.yaml")
+DEFAULT_TRAIN_SCRIPT = os.path.join(REPO_ROOT, "examples", "tiny_cnn", "train.py")
 
 
 class Emitter:
@@ -217,7 +218,19 @@ def run_mission(
     source_dir = os.path.join(REPO_ROOT, "examples", adapter)
     editor_model = os.environ.get("KUN_EDITOR_MODEL", "sonnet")
 
-    with open(BASELINE_CONFIG) as f:
+    # Adapter-parametrized trainer: run examples/<adapter>/train.py with its config.yaml.
+    # Any trainer honoring the runner contract (--config; metrics.jsonl rows; nonzero exit
+    # + train_loss:"nan" row on divergence) plugs in. Fall back to the tiny-CNN defaults if
+    # the adapter's files are missing, so a bad adapter name degrades instead of crashing.
+    train_script = os.path.join(source_dir, "train.py")
+    baseline_config_path = os.path.join(source_dir, "config.yaml")
+    if not (os.path.exists(train_script) and os.path.exists(baseline_config_path)):
+        print(f"[run_mission] adapter '{adapter}' missing train.py/config.yaml in "
+              f"{_rel(source_dir)} -> falling back to tiny_cnn", flush=True)
+        train_script = DEFAULT_TRAIN_SCRIPT
+        baseline_config_path = BASELINE_CONFIG
+
+    with open(baseline_config_path) as f:
         baseline_config = yaml.safe_load(f)
 
     emit = Emitter(mission_id, events_path)
@@ -392,7 +405,7 @@ def run_mission(
         # emit THAT real diff instead of the config diff (doc 08).
         workspace = os.path.join(runs_dir, exp_id)
         if parent_id is None:
-            base_label = _rel(BASELINE_CONFIG)
+            base_label = _rel(baseline_config_path)
         else:
             base_label = _rel(os.path.join(runs_dir, parent_id, "config.yaml"))
         new_label = _rel(os.path.join(workspace, "config.yaml"))
@@ -438,6 +451,7 @@ def run_mission(
         result = RUN.run_experiment(
             config_path=config_path, workspace_dir=workspace,
             timeout_sec=timeout_sec, emit=emit, envelope=env,
+            train_script=train_script,
         )
 
         full_config = dict(parent_config)

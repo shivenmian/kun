@@ -47,12 +47,18 @@ def run_experiment(
     timeout_sec: int,
     emit: Callable[..., Any],
     envelope: Dict[str, Any],
+    train_script: str = TRAIN_SCRIPT,
 ) -> Dict[str, Any]:
     """Run one experiment. Emits experiment_started, metric_logged*, and
     experiment_finished | experiment_failed. Returns a result dict:
 
         {status, final_metrics, last_metrics, failure_type?, message?,
          stdout_path, stderr_path}
+
+    ``train_script`` is the adapter's trainer entry point (default: the tiny-CNN
+    script). Any trainer that honors the contract — accept ``--config``, write
+    metric rows to <workspace>/metrics.jsonl, exit nonzero with a ``train_loss:"nan"``
+    row on divergence — plugs in unchanged.
     """
     os.makedirs(workspace_dir, exist_ok=True)
     metrics_path = os.path.join(workspace_dir, "metrics.jsonl")
@@ -62,7 +68,8 @@ def run_experiment(
     open(metrics_path, "w").close()
 
     rel_config = os.path.relpath(config_path, REPO_ROOT)
-    command = f"python examples/tiny_cnn/train.py --config {rel_config}"
+    rel_script = os.path.relpath(train_script, REPO_ROOT)
+    command = f"python {rel_script} --config {rel_config}"
 
     emit(
         "experiment_started",
@@ -75,7 +82,7 @@ def run_experiment(
     )
 
     proc = subprocess.Popen(
-        [sys.executable, TRAIN_SCRIPT, "--config", config_path],
+        [sys.executable, train_script, "--config", config_path],
         cwd=REPO_ROOT,
         stdout=open(stdout_path, "w"),
         stderr=open(stderr_path, "w"),
