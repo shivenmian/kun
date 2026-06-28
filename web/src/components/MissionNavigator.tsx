@@ -49,6 +49,13 @@ export const MissionNavigator = forwardRef<
     return () => window.clearInterval(t);
   }, [load]);
 
+  // Cross-mission attention: how many missions currently need a human (armed gate with
+  // a pending proposal — GET /missions §5.2 pending_approval).
+  const needsHuman = useMemo(
+    () => (missions ?? []).filter((m) => m.pending_approval).length,
+    [missions]
+  );
+
   const filtered = useMemo(() => {
     const rows = missions ?? [];
     const q = query.trim().toLowerCase();
@@ -89,6 +96,14 @@ export const MissionNavigator = forwardRef<
         <button onClick={onNew} title="New mission" className="text-neutral-400 hover:text-sky-400">
           ＋
         </button>
+        {needsHuman > 0 && (
+          <span
+            className="mt-1 inline-flex animate-pulse items-center rounded-full border border-amber-600/60 bg-amber-500/15 px-1 text-[10px] font-semibold text-amber-300"
+            title={`${needsHuman} mission(s) need a human`}
+          >
+            🔔{needsHuman}
+          </span>
+        )}
       </div>
     );
   }
@@ -99,6 +114,14 @@ export const MissionNavigator = forwardRef<
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] uppercase tracking-wide text-sky-500">Kun</span>
           <span className="text-xs font-semibold text-neutral-200">Missions</span>
+          {needsHuman > 0 && (
+            <span
+              className="inline-flex animate-pulse items-center gap-0.5 rounded-full border border-amber-600/60 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300"
+              title={`${needsHuman} mission(s) need a human`}
+            >
+              🔔 {needsHuman}
+            </span>
+          )}
         </div>
         <button
           onClick={onToggleCollapse}
