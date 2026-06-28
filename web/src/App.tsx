@@ -7,6 +7,7 @@ import { TrajectoryGraph } from "./components/TrajectoryGraph";
 import { ExperimentDetails } from "./components/ExperimentDetails";
 import { DiffViewer } from "./components/DiffViewer";
 import { Leaderboard } from "./components/Leaderboard";
+import { CompareView } from "./components/CompareView";
 import { MetricsChart } from "./components/MetricsChart";
 import { ResearchMemoryPanel } from "./components/ResearchMemoryPanel";
 import { EventStream } from "./components/EventStream";
@@ -15,7 +16,7 @@ import { MissionLauncher, type LaunchChoice } from "./components/MissionLauncher
 import { Card, CardHeader, CardTitle, Button } from "./components/ui/primitives";
 import { cn } from "./lib/utils";
 
-type Tab = "details" | "diff" | "metrics" | "leaderboard";
+type Tab = "details" | "diff" | "metrics" | "compare" | "leaderboard";
 
 export default function App() {
   const [launched, setLaunched] = useState<LaunchChoice | null>(null);
@@ -140,7 +141,7 @@ export default function App() {
           <CardHeader>
             <CardTitle>Node View</CardTitle>
             <div className="flex gap-1">
-              {(["details", "diff", "metrics", "leaderboard"] as Tab[]).map((t) => (
+              {(["details", "diff", "metrics", "compare", "leaderboard"] as Tab[]).map((t) => (
                 <button
                   key={t}
                   onClick={() => setTab(t)}
@@ -160,6 +161,9 @@ export default function App() {
             {tab === "details" && <ExperimentDetails exp={selected} />}
             {tab === "diff" && <DiffViewer exp={selected} />}
             {tab === "metrics" && <MetricsChart exp={selected} metricName={metricName} />}
+            {tab === "compare" && (
+              <CompareView state={state} selectedId={selectedId} onSelect={setSelectedId} />
+            )}
             {tab === "leaderboard" && (
               <Leaderboard state={state} selectedId={selectedId} onSelect={setSelectedId} />
             )}

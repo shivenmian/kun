@@ -275,6 +275,9 @@ function setStatus(exp: Experiment, next: Experiment["status"]) {
   if (STATUS_RANK[next] >= STATUS_RANK[exp.status]) exp.status = next;
 }
 
+// Confidence ladder for the two-tier memory (CONTRACT §3 / §9.4). Higher = sharper.
+const CONFIDENCE_RANK: Record<string, number> = { low: 0, medium: 1, high: 2 };
+
 function addConstraint(
   state: MissionState,
   c: Constraint,
@@ -283,7 +286,26 @@ function addConstraint(
   timestamp?: string
 ) {
   if (!c || !c.constraint_id) return;
-  if (state.constraints.find((x) => x.constraint_id === c.constraint_id)) return;
+  const existing = state.constraints.find((x) => x.constraint_id === c.constraint_id);
+  if (existing) {
+    // Re-emitted constraint = memory hygiene / confidence growth (CONTRACT §9.4).
+    // Merge in the new fields and record a sharpening (medium->high) so the panel can
+    // surface "rising confidence". Tolerant of missing/unknown confidence labels.
+    const prev = existing.confidence;
+    const next = c.confidence;
+    const rose =
+      prev != null &&
+      next != null &&
+      (CONFIDENCE_RANK[next] ?? 0) > (CONFIDENCE_RANK[prev] ?? 0);
+    if (next != null) existing.confidence = next;
+    if (rose) existing.priorConfidence = prev;
+    if (c.text) existing.text = c.text;
+    if (c.bound) existing.bound = c.bound;
+    if (c.applies_to) existing.applies_to = c.applies_to;
+    if (c.supporting_experiments) existing.supporting_experiments = c.supporting_experiments;
+    if (timestamp) existing.timestamp = timestamp;
+    return;
+  }
   state.constraints.push({ ...c, experimentId: expId, branchId, timestamp });
 }
 
