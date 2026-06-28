@@ -229,6 +229,11 @@ Emitted before any patch/run.
 }
 ```
 
+When the diff was produced by the **agent-edit** patcher (P1), the payload MAY also carry optional
+telemetry — `commit_sha`, `session_id`, `cost_usd` — and an `actor` of
+`{"type":"agent","name":"agent-edit","model":"<editor-model>"}`. These are additive/optional; the
+state builder ignores unknown fields (config-patch omits them).
+
 ### experiment_started
 
 ```json
