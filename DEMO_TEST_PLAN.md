@@ -12,6 +12,85 @@ Annotations: ✅ expect · 👀 watch for · 🎥 record for the demo.
 
 ---
 
+# 🎬 1-MINUTE VIDEO — RECORDING SET (do this, record everything)
+
+**Prereq:** backend + web running (§0 below). Three clips. Only Clip 3 is live — dry-run it once,
+then record. Clips 1 & 2 are safe first-take. Edit them together; read the voiceover over the top.
+
+## The 60-second voiceover (timed to the 3 clips)
+```
+[0:00–0:13  CLIP 1 — wedge]
+"Autonomous agents are starting to do real ML research — but their reasoning vanishes into logs.
+ This is someone else's training loop. Add five lines of kun_log…  and Kun gives it a cockpit."
+
+[0:13–0:25  CLIP 2 — Beat A, autonomous]
+"Now watch it run research on its own — proposing experiments, testing them, reasoning about what
+ worked, and self-correcting when it overshoots."
+
+[0:25–0:52  CLIP 3 — Beat B, steer + memory + fork]
+"And you can steer it. I push the learning rate too high — it diverges. Kun turns that failure into
+ a constraint, in its memory… and the agent's very next move respects it, automatically.
+ Fork any node, set your own rule. It's a cockpit, not autopilot."
+
+[0:52–1:00  close]
+"Kun — the flight recorder, cockpit, and runtime for autonomous ML research.
+ And the open standard it all logs into."
+```
+
+## CLIP 1 — Wedge (~13s):  "5 lines → a cockpit"  🎥
+1. **Record the editor:** open `examples/external_loop_demo.py`, highlight the `from kun.log import
+   kun_log` import + the `kun_log(...)` calls. (Header literally says: the ONLY Kun integration is ~5 lines.)
+2. **Run it** (it's NOT Kun's loop — it emits 5 nodes over ~8s):
+   ```bash
+   cd /Users/shivenmian/kun && source backend/.venv/bin/activate
+   python examples/external_loop_demo.py
+   ```
+3. **Show it in Kun:** browser → **Observe** → mission_id `mission_external_demo`,
+   events_path `runs/mission_external_demo/events.jsonl` → the trajectory appears.
+   (For "nodes appear live", open Observe right after starting the script; for a safe take, run it
+   first, then Observe the finished trajectory.) Reliable curl alt:
+   ```bash
+   curl -s -X POST localhost:8000/missions/register -H 'Content-Type: application/json' \
+     -d '{"mission_id":"mission_external_demo","events_path":"runs/mission_external_demo/events.jsonl"}'
+   # then open http://localhost:5173/?observe=mission_external_demo
+   ```
+
+## CLIP 2 — Beat A, autonomous research (~12s):  one click, safe  🎥
+Browser → **Replay** gallery → pick **"Autonomous research: LR range test"** (id `autonomous_research`).
+Pan the trajectory graph; open one node to show the AI's rationale.
+👀 Real Opus run: sweeps LR, finds the optimum, overshoots, **self-corrects**. No human in the loop.
+
+## CLIP 3 — Beat B, the HERO: steer → fail → learn → reshape → fork (~30s, LIVE)  🎥 DRY-RUN ONCE
+**Create via the UI (best footage):** **+ New mission** →
+- name `Live steering demo`; objective `val_accuracy` / maximize / target `0.999`
+- budget: max_experiments `8`, runtime/exp `120`; adapter `tiny_cnn`; patcher `config-patch`
+- allowed changes: `learning_rate, dropout, optimizer, scheduler, weight_decay`
+- ✅ **check "approval gate ON"** → **Create & start**
+
+It holds at the first proposal. Then, in the Control Deck / approval banner:
+1. **Reject with replacement** → type `{"learning_rate": 0.05}`.
+   👀 **MONEY SHOT:** node turns **🔴 red (NaN)** → constraint `learning_rate > 0.025` appears + highlights in the **research-memory panel**.
+2. (optional 2nd) **Reject with** `{"dropout": 0.9}` → a second learned constraint.
+3. **Approve the next proposal as-is** → 👀 its values **respect the bound** (no high LR) — the closed loop reshaped it.
+4. **Fork:** select the best valid node → Fork dialog → (optional constraint) → **Fork & run** → a new branch runs.
+
+**Scripted-create alternative** (if you'd rather pre-create and just steer on camera):
+```bash
+MID=$(curl -s -X POST localhost:8000/missions -H 'Content-Type: application/json' -d '{
+  "name":"Live steering demo","goal":"demo","objective":{"metric":"val_accuracy","direction":"maximize","target":0.999},
+  "budget":{"max_experiments":8,"max_runtime_per_experiment_sec":120},"adapter":"tiny_cnn","editable_files":["config.yaml"],
+  "allowed_changes":["learning_rate","dropout","optimizer","scheduler","weight_decay"],"constraints":[]}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['mission_id'])")
+curl -s -X POST localhost:8000/missions/$MID/stop  -H 'Content-Type: application/json' -d '{"approval_required":true}'
+curl -s -X POST localhost:8000/missions/$MID/start -H 'Content-Type: application/json' -d '{"mode":"live","started_by":"user"}'
+echo "open http://localhost:5173/?live=$MID  then do the reject/approve/fork in the UI"
+```
+
+> The rest of this document (Steps 0–11 below) is the **full** test/rehearsal plan + the 3-min demo
+> material; the section above is the minimal set for the 1-min video.
+
+---
+
 ## 0. Setup (two terminals)
 ```bash
 # Terminal A — backend
