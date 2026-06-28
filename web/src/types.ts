@@ -69,6 +69,7 @@ export interface Constraint {
   confidence?: string; // learned only
   supporting_experiments?: string[]; // learned only
   // derived
+  priorConfidence?: string; // set by the reducer when a re-emitted constraint sharpens (e.g. medium->high)
   experimentId?: string; // where it landed (envelope experiment_id)
   branchId?: string;
   timestamp?: string;
