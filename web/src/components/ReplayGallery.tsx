@@ -21,6 +21,12 @@ const REPLAYS: ReplayEntry[] = [
     blurb: "The 78-event reference trajectory. Loads fully offline — no backend.",
   },
   {
+    id: "probe_v4",
+    label: "Autonomous research (real)",
+    blurb: "Real Opus run: an autonomous LR range test that finds the optimum, overshoots, and self-corrects.",
+    eventsPath: "examples/replays/autonomous_research.events.jsonl",
+  },
+  {
     id: "modded_nanogpt_run",
     label: "nanoGPT (synthesized)",
     blurb: "Hand-authored GPT speedrun trajectory — honesty-guarded as synthetic.",
