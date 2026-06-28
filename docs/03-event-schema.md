@@ -37,6 +37,7 @@ Every event should use this envelope:
 
 ```json
 {
+  "schema_version": 1,
   "event_id": "evt_000123",
   "timestamp": "2026-06-27T20:15:42.123Z",
   "type": "experiment_started",
@@ -51,12 +52,15 @@ Every event should use this envelope:
 Required fields:
 
 ```text
+schema_version
 event_id
 timestamp
 type
 mission_id
 payload
 ```
+
+`schema_version` is an integer on every event (append-only logs are forever; this is cheap insurance for future migrations). MVP = `1`.
 
 Optional fields:
 
@@ -119,10 +123,13 @@ Emitted when a mission is created.
       "weight_decay",
       "augmentation",
       "scheduler"
-    ]
+    ],
+    "constraints": []
   }
 }
 ```
+
+Initial constraints may be seeded here (empty for a fresh mission) or emitted as `constraint_added` events at mission start. See the canonical constraint object under `constraint_added`/`constraint_learned`.
 
 ### mission_started
 
@@ -155,7 +162,7 @@ Emitted when a mission is created.
 
 ### constraint_added
 
-Human-specified or learned constraint.
+Human-specified or learned constraint. `constraint_added` and `constraint_learned` share **one canonical object** that the research-memory panel renders: `constraint_id`, `source` (`human`|`learned`), `text`, `applies_to`, optional structured `bound` (`{param, op, value}`), and (for learned) `confidence` + `supporting_experiments`. The **`bound` is what the planner hard-rejects against** to make the closed constraint loop deterministic (spec §4) — always include it when the constraint is a numeric limit.
 
 ```json
 {
@@ -166,7 +173,8 @@ Human-specified or learned constraint.
     "constraint_id": "constraint_001",
     "source": "human",
     "text": "Avoid learning_rate > 0.003 because prior runs became unstable.",
-    "applies_to": ["learning_rate"]
+    "applies_to": ["learning_rate"],
+    "bound": {"param": "learning_rate", "op": ">", "value": 0.003}
   }
 }
 ```
@@ -174,6 +182,8 @@ Human-specified or learned constraint.
 ### experiment_proposed
 
 Emitted before any patch/run.
+
+`operator` (required) is the AIDE-style proposal type: `draft` (new approach from scratch) | `debug` (repair a `buggy` parent, preserving its approach) | `improve` (exactly one atomic change to a `valid` parent, so the metric delta is attributable). The UI badges nodes by operator.
 
 ```json
 {
@@ -188,6 +198,7 @@ Emitted before any patch/run.
     "model": "gpt-5.5"
   },
   "payload": {
+    "operator": "improve",
     "hypothesis": "Lowering the learning rate while keeping cosine scheduling should retain the previous convergence gains with less instability.",
     "changes": {
       "learning_rate": 0.0015,
@@ -381,6 +392,8 @@ Additional metrics:
 }
 ```
 
+`decision` ∈ `{continue_branch, promote, reject, retry_debug, fork, stop}`. Each selection-policy branch (spec §4) emits one so the graph shows *why* each node was expanded.
+
 ### constraint_learned
 
 ```json
@@ -390,10 +403,12 @@ Additional metrics:
   "experiment_id": "exp_005",
   "payload": {
     "constraint_id": "learned_002",
+    "source": "learned",
     "text": "learning_rate > 0.004 caused unstable training in 2 experiments.",
     "confidence": "medium",
     "supporting_experiments": ["exp_002", "exp_005"],
-    "applies_to": ["learning_rate"]
+    "applies_to": ["learning_rate"],
+    "bound": {"param": "learning_rate", "op": ">", "value": 0.004}
   }
 }
 ```
@@ -416,6 +431,31 @@ Additional metrics:
   }
 }
 ```
+
+### Human steering events (v4)
+
+Emitted by the cockpit when a human steers a live (Mode A) mission. In Mode B, the external loop reads these back via `GET /missions/{id}/state` (the feedback channel) and obeys.
+
+```json
+{"type": "instruction_added", "mission_id": "mission_fashion_001", "branch_id": "branch_main",
+ "actor": {"type": "human", "name": "user"},
+ "payload": {"instruction_id": "instr_001", "text": "Try cosine scheduling next; we're plateauing.",
+             "applies_from": "exp_006"}}
+```
+
+```json
+{"type": "experiment_approved", "mission_id": "mission_fashion_001", "experiment_id": "exp_007",
+ "actor": {"type": "human", "name": "user"},
+ "payload": {"edited": false, "note": "Looks good, run it."}}
+```
+
+```json
+{"type": "experiment_rejected", "mission_id": "mission_fashion_001", "experiment_id": "exp_007",
+ "actor": {"type": "human", "name": "user"},
+ "payload": {"reason": "dropout too high; will underfit", "replacement_changes": {"dropout": 0.2}}}
+```
+
+The **approval gate** holds a `proposed` experiment until an `experiment_approved` (optionally with `edited: true` + the human's `changes`) or `experiment_rejected` arrives. `instruction_added` biases the next proposal (and, with a structured `bound` in its payload, can hard-reject like a constraint).
 
 ### mission_finished
 
@@ -463,7 +503,8 @@ type Experiment = {
   id: string;
   parentId?: string;
   branchId: string;
-  status: "proposed" | "running" | "success" | "failed" | "promoted" | "rejected" | "forked";
+  operator?: "draft" | "debug" | "improve";
+  status: "proposed" | "running" | "valid" | "buggy" | "promoted" | "rejected" | "forked";
   hypothesis?: string;
   rationale?: string;
   changes?: Record<string, unknown>;
@@ -476,6 +517,8 @@ type Experiment = {
   concerns?: string[];
 };
 ```
+
+Status mapping from outcome events: `experiment_finished` (status `success`) → derived node status `valid`; `experiment_failed` → `buggy` (the `debug` operator targets these). The raw event payloads keep their `success`/`failed`/`nan_detected` wording; `valid`/`buggy` is the node-lifecycle vocabulary the cockpit renders.
 
 ## MVP acceptance criteria
 
