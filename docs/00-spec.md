@@ -6,6 +6,7 @@
 > **Changelog:** v2 — promoted the engine-agnostic logging contract from de-risk to *the core wedge/moat*; LLM is the driver (not a narrator); added budget/stop, mission-spec fields, research-memory panel, compare-experiments view, stop/pause, topbar status; disambiguated the nanogpt run as external-session→convert; added a 4th demo beat (ingest an external loop); mandated event-schema deltas (now patched into doc 03).
 > **v3** — specified the closed constraint loop (canonical constraint object with a structured `bound` + deterministic hard-reject so the reshape fires *visibly*); inlined the emit helper and made Beat 2 a genuinely independent producer (moat = demonstrated, not asserted; decoupled from GPU risk); specified the nanogpt→events converter; defined the heuristic fallback, the `decision` enum, and the topbar model source.
 > **v4** — Kun supports **both Mode A (drives) and Mode B (observes)** with per-mode steering semantics + a Mode-B feedback channel; added the **code patcher** (`agent-edit`: orchestrate Claude Code/Codex to edit real model code) so Kun can autoresearch *any* model, not just config knobs; promoted **live fork execution, mid-run instruct, and a human approval gate** to core; pulled in **model benchmarking** (+ LiteLLM) and **cross-model compare**; nanogpt can now be a *recorded Kun-driven (Mode-A) run*; tagged everything **P0/P1/P2**; expanded §12 into a comprehensive deferred backlog to revisit post-hackathon.
+> **v5** — execution-discipline pass (**no scope added, nothing deleted**): made **craft-first** the operating principle (for the demo, cockpit polish is the moat you can actually win; "open standard" stays the long-term framing — §2 unchanged); split time-safety into two valves — a **graceful drop-order** and an independent **`agent-edit` risk gate** (§9); moved the **`compare`** view P0 → P1 so the P0 craft budget concentrates on the graph + research-memory panel + closed constraint loop.
 
 ---
 
@@ -161,7 +162,7 @@ Each accepted node is a `git commit` on a per-trajectory branch (local, no GitHu
 ## 6. Cockpit surfaces (UI)
 
 - **Trajectory graph** (React Flow): nodes colored by status (buggy = red, etc.), badged by operator; selecting a node drives every panel. (Large-trajectory legibility — collapse/filter by status — is P1 nice-to-have if the nanogpt graph gets dense.)
-- **Node view quad:** `detail` (hypothesis/rationale/code) · `diff` (unified diff vs parent) · `leaderboard` (results table sorted by metric) · **`compare`** (diff two nodes' configs + overlay their metric curves — the most-wanted ML action; makes a large trajectory tractable).
+- **Node view — P0 triad + P1 compare:** `detail` (hypothesis/rationale/code) · `diff` (unified diff vs parent) · `leaderboard` (results table sorted by metric) — these three are P0 · **`compare`** *(P1)* (diff two nodes' configs + overlay their metric curves — the most-wanted ML action; makes a large trajectory tractable).
 - **Research-memory panel** (P0): the **mission-wide accumulated** constraints/learnings/banned-regions across the whole trajectory — the surface that embodies "memory" and makes the hero beat legible. A new learned constraint visibly enters this panel and then reshapes the next proposal.
 - **Cross-model / benchmarking view** (P2): the same mission run under N models side-by-side — compares them *as autoresearchers* (hypothesis quality, sample-efficiency, time/cost to target). See §8 Beat 5.
 - **Steering controls:** fork dialog · approval gate (approve/reject/edit a pending proposal) · mid-run instruct box · stop/pause.
@@ -170,29 +171,32 @@ Each accepted node is a `git commit` on a per-trajectory branch (local, no GitHu
 
 ## 7. Scope (with build priorities)
 
-**P0 = demo-critical spine (build first). P1 = the power features that make it a cockpit, not a viewer. P2 = second demo story, droppable last.** If time compresses, the drop order is P2 → P1-stretch → never P0.
+**P0 = demo-critical spine (build first). P1 = the power features that make it a cockpit, not a viewer. P2 = second demo story, droppable last.** If time compresses, the drop order is P2 → P1-stretch → never P0 (the precise order + the `agent-edit` gate are in §9).
+
+> **Operating principle (craft-first).** The mechanics here are admittedly unnovel (§2); for the demo, the only edge winnable in the timeframe is **cockpit craft** — the graph, the research-memory panel, and the closed constraint loop *firing visibly*. Spend the hours there. The open-standard framing stays on the slide and is nearly free structurally (`kun_log` ~5 lines + the Beat-2 producer ~15 lines), so it does **not** trade against polish — but the heavy P1/P2 machinery does, which is why it's gated below.
 
 ### P0 — core (without these there is no product)
 - Open logging contract + `kun_log` emit helper (§3) — the wedge.
 - Event log + in-memory state builder + replay (same path as live).
 - LLM-driven loop, **Mode A**, with `config-patch` patcher (tiny CNN).
 - Closed constraint loop + research-memory panel (§4) — the hero feature.
-- Trajectory graph + node-view quad (detail/diff/leaderboard/compare) + event stream + topbar.
+- Trajectory graph + node-view **triad** (detail/diff/leaderboard) + event stream + topbar. *(`compare` moved to P1 — it's the soft-defer; the constraint loop, not compare, is load-bearing for the narrative.)*
 - Budget/stop → `mission_finished`. Visual fork. Live SSE.
 
 ### P1 — power features (the reason it's a cockpit; build right after P0)
-- **`agent-edit` patcher** — Kun autoresearches *real code* (the big power-up).
+- **`compare` view** (moved from P0): diff two nodes' configs + overlay metric curves. Build first in P1 — it's pure cockpit craft and the most-wanted ML action.
 - **Live fork execution** (Mode A).
 - **Approval gate** + **mid-run `instruct`**.
+- **`agent-edit` patcher** — Kun autoresearches *real code* (the big power-up). **Gated (see §9): build only after the doc-08 spike passes; fall back to `config-patch` the instant a cycle flakes.** Highest wow-per-hour *if* it works, but it can't be demoed live and is the top scope-trap — treat it as the most droppable P1 item.
 - **Mode-B feedback channel** (external loop reads back constraints/instructions → steering has teeth).
 - **commit-per-node** (synergizes with `agent-edit`).
 - Recorded **Mode-A-on-real-code** run for the serious demo (§8 Beat 1).
 
-### P2 — second demo story (in scope, lowest priority)
+### P2 — second demo story (in scope, lowest priority; first to drop under time pressure)
 - **Model benchmarking** (#9): run the same mission under N models, compare them as autoresearchers. Requires LiteLLM (in) + a minimal per-mission model picker (NOT an elaborate settings UI — no temperature/test-connection chrome) + the **cross-model compare view** (#18).
 
 ### Borrowed from AIDE/Weco (cheap, high realism — fold into P0/P1)
-- Three typed operators, one atomic change per `improve`; buggy/valid states + bounded debug depth; Σ-style per-node summary; greedy expand-best policy; the detail/diff/leaderboard/compare quad.
+- Three typed operators, one atomic change per `improve`; buggy/valid states + bounded debug depth; Σ-style per-node summary; greedy expand-best policy; the detail/diff/leaderboard triad (P0) + `compare` (P1).
 
 ### Cut for MVP (see §12 backlog to revisit; §13 for hard non-goals)
 - **SQLite / durable persistence** — JSONL + in-memory is enough.
@@ -223,12 +227,12 @@ Each accepted node is a `git commit` on a per-trajectory branch (local, no GitHu
 ```
 P0: event schema (+deltas) + open contract + emit helper
   -> hand-authored rich sample events.jsonl
-    -> cockpit UI on the sample (graph + node-view quad + memory panel + event stream + topbar)
+    -> cockpit UI on the sample (graph + node-view triad [detail/diff/leaderboard] + memory panel + event stream + topbar)
       -> tiny CNN trainer + one-experiment runner (config-patch)
         -> LLM-driven loop + budget/stop + closed constraint loop (hero)
           -> live SSE + visual fork + replay
-P1: agent-edit patcher (orchestrate Claude Code/Codex on real code)
-  -> live fork execution + approval gate + mid-run instruct
+P1: compare view -> live fork execution + approval gate + mid-run instruct
+  -> agent-edit patcher (orchestrate Claude Code/Codex on real code) [GATED — see below]
     -> Mode-B feedback channel + commit-per-node
       -> recorded Mode-A-on-real-code (nanogpt) run -> serious replay
 P2: LiteLLM model picker + benchmarking + cross-model compare
@@ -237,7 +241,11 @@ P2: LiteLLM model picker + benchmarking + cross-model compare
 
 UI before the trainer. The cockpit + contract are the deliverable; the trainer just prints metrics. **Do not start P1 until the P0 spine demos end-to-end; do not start P2 until P1's hero steering works.**
 
-**Minimum strong demo (the stop-point under time pressure):** the **P0 spine alone is a complete, thesis-proving demo** — a live tiny-CNN autoresearch loop, the **closed constraint loop** (failure → learned constraint → visibly reshapes the next proposal), the cockpit (graph + node detail + research-memory panel + event stream), the **~15-line independent-producer wedge proof**, and replay. If you ship only that, you still have a strong demo. P1 (esp. **`agent-edit` real-code autoresearch** — the single highest wow-per-hour item) raises the ceiling; P2 (benchmarking) is droppable. Within P0, the `compare` view is the soft-defer — the constraint loop, not compare, is load-bearing for the narrative.
+**Two independent time-safety valves (don't conflate them):**
+1. **Graceful drop-order** — you've run low on time and everything built so far works. Drop in reverse build order, never touching P0: **benchmarking (P2) → commit-per-node → Mode-B feedback channel → approval gate + mid-run instruct → recorded nanogpt run → `compare`.** A finished P0 + a clean slice of P1 beats a sprawl of half-built features.
+2. **`agent-edit` risk gate** — *independent of how much time is left.* Build `agent-edit` only after the doc-08 sanity spike passes (confirm the Claude Code flags, non-interactive editing, and timeout bounds). If the spike fails, or any later `agent-edit → train → eval` cycle flakes, fall back to `config-patch` immediately. Because it can't be demoed live (ships as a *recorded* run, §8 Beat 1) and is the top scope-trap, in practice it is often the first P1 thing abandoned — that's expected, not a failure.
+
+**Minimum strong demo (the stop-point under time pressure):** the **P0 spine alone is a complete, thesis-proving demo** — a live tiny-CNN autoresearch loop, the **closed constraint loop** (failure → learned constraint → visibly reshapes the next proposal), the cockpit (graph + node detail + research-memory panel + event stream), the **~15-line independent-producer wedge proof**, and replay. If you ship only that, you still have a strong demo. P1 (esp. **`agent-edit` real-code autoresearch** — the highest wow-per-hour item *if its spike passes*; otherwise drop it without sentiment) raises the ceiling; P2 (benchmarking) is droppable. The `compare` view now sits at the front of P1 (moved out of P0): the closed constraint loop, not compare, is what's load-bearing for the narrative, so P0 craft concentrates on the graph + research-memory panel + the constraint loop firing visibly.
 
 ## 9b. Non-code assets (own these explicitly — they're on the critical path)
 
@@ -252,7 +260,7 @@ The `agent-edit` patcher (the one component that needs design-before-code) is sp
 ## 10. Definition of done
 
 1. A Fashion-MNIST mission runs multiple experiments autonomously (LLM-driven proposals), emitting structured events, and terminates on a budget/stop condition. *(P0)*
-2. The cockpit shows a live trajectory graph + node detail + metrics + diff + compare + event stream + research-memory panel, driven entirely by the event log. *(P0)*
+2. The cockpit shows a live trajectory graph + node detail + metrics + diff + event stream + research-memory panel, driven entirely by the event log *(P0)*; `compare` is added in P1.
 3. A saved replay loads and is fully inspectable. *(P0)*
 4. An **independent external producer** (a non-Kun ~15-line script using `kun_log`) emits **live** and renders in real time — proving the add-on/wedge. *(P0)*
 5. A user forks/instructs/approves on a live mission; a constraint enters the memory panel and **deterministically** reshapes the next proposal (bound-violating proposals hard-rejected). *(P0 constraint loop; P1 live exec)*

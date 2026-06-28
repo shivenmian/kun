@@ -25,6 +25,15 @@ for autonomous ML experiment loops, organized around the "research trajectory" p
 - Build strictly in priority order with the gates (spec §7/§9): finish the **P0 spine end-to-end
   before starting P1**; finish **P1 hero steering before P2**. If time compresses, the P0 spine alone
   is the "minimum strong demo" — ship that.
+- **Craft-first (spec §7).** For the demo, the only winnable moat is cockpit craft — the graph, the
+  research-memory panel, and the closed constraint loop *firing visibly*. Spend P0 hours there. The
+  open-standard framing stays the long-term story and is near-free (`kun_log` + the Beat-2 producer);
+  the heavy P1/P2 machinery is what trades against polish. Note **`compare` is P1, not P0** (P0 node-view = detail/diff/leaderboard triad).
+- **Two time-safety valves (spec §9), don't conflate them:** (1) *graceful drop-order* (out of time,
+  everything works) drops in reverse build order — benchmarking (P2) → commit-per-node → Mode-B feedback
+  channel → approval gate + instruct → recorded nanogpt → `compare` — never P0; (2) the **`agent-edit`
+  risk gate** is independent of time: build it only after the doc-08 spike passes, fall back to
+  `config-patch` the instant a cycle flakes. `agent-edit` can't be demoed live and is the top scope-trap.
 - Every task must serve a demo beat (spec §8). Don't overbuild. Respect the non-goals (spec §13):
   no SQLite, no full GitHub PR integration, no MCTS, no desktop wrapper, no elaborate LLM settings UI.
 - Don't fake the nanogpt run; honor the honesty guard (spec §8 / doc 07).

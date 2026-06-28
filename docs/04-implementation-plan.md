@@ -1,6 +1,6 @@
 # Kun Implementation Plan
 
-> **Reconciled with [`00-spec.md`](00-spec.md) (canonical v4; wins on any conflict).** Deltas: **UI before the trainer** (schema + open contract + emit helper + hand-authored sample `events.jsonl`, then cockpit UI, THEN tiny CNN trainer); the **LLM is the driver from the start** (not heuristic-first); **two modes — Mode A (Kun drives) and Mode B (Kun observes/steers an external loop)** with a Mode-B feedback channel (`GET /missions/{id}/state`); the **code patcher** has two implementations — `config-patch` (P0) and **`agent-edit`** (P1: orchestrate Claude Code/Codex to edit real model code); **live fork execution, approval gate, mid-run `instruct`, and commit-per-node are core (P1)** with the new events `instruction_added`/`experiment_approved`/`experiment_rejected`; **LiteLLM is IN** (provider-agnostic planning + a minimal per-mission model picker — only the elaborate settings UI stays out) and powers **model benchmarking + cross-model compare (P2)**; ship the **open logging contract + ~5-line `kun_log` emit helper** as a first-class deliverable and demonstrate an **independent external loop ingesting live** (DoD); emit `operator` (draft/debug/improve), `valid`/`buggy` statuses, `schema_version` (doc 03); **research-memory panel + compare view are CORE**; budget/stop emit `mission_finished`; **nanogpt prefers a recorded Kun-driven (Mode-A + `agent-edit`) run**, with external-session→convert as the fallback (honesty guard either way); everything is tagged **P0/P1/P2** with build gates (don't start P1 until the P0 spine demos end-to-end; don't start P2 until P1 steering works).
+> **Reconciled with [`00-spec.md`](00-spec.md) (canonical v5; wins on any conflict).** Deltas: **UI before the trainer** (schema + open contract + emit helper + hand-authored sample `events.jsonl`, then cockpit UI, THEN tiny CNN trainer); the **LLM is the driver from the start** (not heuristic-first); **two modes — Mode A (Kun drives) and Mode B (Kun observes/steers an external loop)** with a Mode-B feedback channel (`GET /missions/{id}/state`); the **code patcher** has two implementations — `config-patch` (P0) and **`agent-edit`** (P1: orchestrate Claude Code/Codex to edit real model code); **live fork execution, approval gate, mid-run `instruct`, and commit-per-node are core (P1)** with the new events `instruction_added`/`experiment_approved`/`experiment_rejected`; **LiteLLM is IN** (provider-agnostic planning + a minimal per-mission model picker — only the elaborate settings UI stays out) and powers **model benchmarking + cross-model compare (P2)**; ship the **open logging contract + ~5-line `kun_log` emit helper** as a first-class deliverable and demonstrate an **independent external loop ingesting live** (DoD); emit `operator` (draft/debug/improve), `valid`/`buggy` statuses, `schema_version` (doc 03); **research-memory panel is CORE (P0); the node-view `compare` view moved P0 → P1** (P0 node-view is the detail/diff/leaderboard triad), and `agent-edit` is **gated** behind the doc-08 spike (craft-first: spend P0 hours on the graph + memory panel + closed constraint loop); budget/stop emit `mission_finished`; **nanogpt prefers a recorded Kun-driven (Mode-A + `agent-edit`) run**, with external-session→convert as the fallback (honesty guard either way); everything is tagged **P0/P1/P2** with build gates (don't start P1 until the P0 spine demos end-to-end; don't start P2 until P1 steering works).
 
 ## Build philosophy
 
@@ -11,17 +11,24 @@ The correct order is:
 ```text
 P0: event schema (+deltas) + open contract + emit helper
   -> hand-authored rich sample events.jsonl
-    -> cockpit UI (graph + node-view quad + memory panel + event stream + topbar)
+    -> cockpit UI (graph + node-view triad [detail/diff/leaderboard] + memory panel + event stream + topbar)
       -> tiny CNN trainer + one-experiment runner (config-patch)
         -> LLM-driven loop + budget/stop + closed constraint loop (hero)
           -> live SSE + visual fork + replay
-P1: agent-edit patcher (orchestrate Claude Code/Codex on real code)
-  -> live fork execution + approval gate + mid-run instruct
+P1: compare view -> live fork execution + approval gate + mid-run instruct
+  -> agent-edit patcher (orchestrate Claude Code/Codex on real code) [GATED — see below]
     -> Mode-B feedback channel + commit-per-node
       -> recorded Mode-A-on-real-code (nanogpt) run -> serious replay
 P2: LiteLLM model picker + benchmarking + cross-model compare
   -> demo polish
 ```
+
+**Operating principle (craft-first).** For the demo the only edge winnable in the timeframe is **cockpit craft** — the graph, the research-memory panel, and the closed constraint loop *firing visibly*. Concentrate the P0 hours there. The open-standard framing stays the long-term story and is structurally near-free (`kun_log` ~5 lines + the Beat-2 producer ~15 lines), so it does **not** trade against polish — but the heavy P1/P2 machinery does, which is why it's gated below.
+
+**Two independent time-safety valves (don't conflate them):**
+
+1. **Graceful drop-order** — you've run low on time and everything built so far works. Drop in reverse build order, never touching P0: **benchmarking (P2) → commit-per-node → Mode-B feedback channel → approval gate + mid-run instruct → recorded nanogpt run → `compare`.** A finished P0 + a clean slice of P1 beats a sprawl of half-built features.
+2. **`agent-edit` risk gate** — *independent of how much time is left.* Build `agent-edit` only after the doc-08 sanity spike passes; if the spike fails, or any later `agent-edit → train → eval` cycle flakes, fall back to `config-patch` immediately. Because it can't be demoed live (ships as a *recorded* run) and is the top scope-trap, it is often the first P1 thing abandoned — that's expected, not a failure.
 
 ## Milestone 0: Repo scaffold
 
@@ -186,14 +193,14 @@ Render an existing `events.jsonl` in the UI.
 - Selecting a node updates the details panel.
 - Show basic metric chart.
 - Show diff text (react-diff-viewer, not Monaco).
-- Add the node-view quad: detail / diff / leaderboard / **compare** (diff two nodes' configs + overlay their metric curves).
+- Add the node-view **triad**: detail / diff / leaderboard (these three are P0). *(The `compare` view — diff two nodes' configs + overlay their metric curves — is moved to **P1**; built first in P1, see Milestone 8a.)*
 - Add the **research-memory panel** (mission-wide accumulated constraints/learnings) — core.
 
 ### Acceptance criteria
 
 - Loading a sample events file shows a graph (operator badges, valid/buggy coloring).
 - Clicking nodes shows hypothesis, metrics, diff, and verdict.
-- Compare view diffs two nodes and overlays their metric curves.
+- Node-view triad (detail/diff/leaderboard) renders. *(Compare view diffs two nodes and overlays their metric curves — moved to P1, Milestone 8a.)*
 - Research-memory panel renders mission-wide accumulated constraints.
 
 ## Milestone 6: Live event stream
@@ -235,6 +242,10 @@ Make the LLM-driven planner (the driver, introduced in Milestone 4) robust and *
 - Planner returns valid experiment proposals (incl. `operator`).
 - Bad model output does not crash the loop (graceful fallback to heuristic baseline).
 
+## Milestone 8a: Compare view (P1, build first in P1)
+
+Add the node-view `compare` view: diff two selected nodes' configs + overlay their metric curves. It's pure cockpit craft (no backend/execution risk) and the most-wanted ML action, so it's the **first thing built in P1** once the P0 spine demos end-to-end. *(This is distinct from the cross-model / benchmarking compare view, which stays P2 — Milestone 11.)*
+
 ## Milestone 8: Fork from node
 
 ### Goal
@@ -257,9 +268,11 @@ Add the main steering control.
 - Human instruction appears in decision/constraint panel.
 - A new experiment **runs live** from the fork (Mode A); in Mode B it is queued via the feedback channel.
 
-## Milestone 8b: `agent-edit` patcher (P1)
+## Milestone 8b: `agent-edit` patcher (P1 — GATED)
 
-Add the second patcher implementation alongside `config-patch`. Hand the LLM's proposed change to a coding agent (Claude Code / Codex) run as a subprocess to edit *real model code*; return the diff; run train/eval on the patched workspace; emit `file_diff_created` with the real diff. Sandbox edits to the per-experiment workspace. Live-demo only on a fast target; show real-code Mode A as a recorded run (Milestone 9). This is what lets Kun autoresearch any model, not just config knobs.
+Add the second patcher implementation alongside `config-patch`. Hand the LLM's proposed change to a coding agent (Claude Code / Codex) run as a subprocess to edit *real model code*; return the diff; run train/eval on the patched workspace; emit `file_diff_created` with the real diff. Sandbox edits to the per-experiment workspace. This is what lets Kun autoresearch any model, not just config knobs.
+
+**Gated (see the `agent-edit` risk gate above):** build this only after the doc-08 sanity spike passes; fall back to `config-patch` the instant a cycle flakes. It **can't be demoed live** (ships recorded-only, Milestone 9) and is the **top scope-trap / most-droppable P1 item** — abandoning it without sentiment is expected, not a failure.
 
 ## Milestone 8c: Approval gate + mid-run instruct (P1)
 
@@ -352,7 +365,7 @@ Run the same mission under N models via LiteLLM + a minimal per-mission model pi
 - Details panel.
 - Metrics chart.
 - Diff viewer (react-diff-viewer).
-- Compare view + leaderboard.
+- Node-view triad: detail / diff / leaderboard. *(Compare view moved to P1 — see Hours 30-36.)*
 - Research-memory panel.
 - Event stream.
 
@@ -365,7 +378,8 @@ Run the same mission under N models via LiteLLM + a minimal per-mission model pi
 
 ### Hours 30-36
 
-- `agent-edit` patcher (P1).
+- **Compare view (P1)** — build first in P1 (diff two nodes' configs + overlay metric curves).
+- `agent-edit` patcher (P1 — GATED: only after the doc-08 spike; fall back to `config-patch` if it flakes).
 - **Live** fork execution (P1, Mode A).
 - Approval gate + mid-run instruct (P1).
 - Mode-B feedback channel + commit-per-node (P1).
@@ -435,7 +449,7 @@ Mitigation:
 Kun MVP is done when:
 
 1. A Fashion-MNIST mission runs multiple experiments autonomously (LLM-driven proposals), emitting structured events, and terminates on a budget/stop condition (`mission_finished`). *(P0)*
-2. The cockpit shows a live trajectory graph + node detail + metrics + diff + compare + event stream + research-memory panel, driven entirely by the event log. *(P0)*
+2. The cockpit shows a live trajectory graph + node detail + metrics + diff + event stream + research-memory panel, driven entirely by the event log *(P0)*; `compare` is added in P1.
 3. A saved replay loads and is fully inspectable. *(P0)*
 4. An **independent external producer** (a non-Kun ~15-line script using `kun_log`) emits **live** and renders in real time — proving the add-on/wedge. *(P0)*
 5. A user forks/instructs/approves on a live mission; a constraint enters the memory panel and **deterministically** reshapes the next proposal (bound-violating proposals hard-rejected). *(P0 constraint loop; P1 live exec)*

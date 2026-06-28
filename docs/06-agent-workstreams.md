@@ -1,6 +1,6 @@
 # Kun Agent Workstreams
 
-> **Reconciled with [`00-spec.md`](00-spec.md) (canonical; wins on conflict).** v4 deltas: the **LLM is the driver** via a **LiteLLM model id** (LiteLLM is IN — provider-agnostic planning + a minimal per-mission model picker, powering **model benchmarking**, P2); heuristic planner is fallback/baseline. Kun supports **both Mode A (Kun drives) and Mode B (Kun observes/steers an external loop)** plus a **Mode-B feedback channel** (`GET /missions/{id}/state`). The **code patcher** has two implementations: **`config-patch` (P0)** + **`agent-edit` (P1, orchestrates Claude Code/Codex to edit real model code)**. Ship the engine-agnostic **open logging contract + ~5-line `kun_log` emit helper** as a first-class deliverable (the wedge) — every producer is an equal citizen, and an **independent external loop emitting live** is a DoD. Emit `operator` (draft/debug/improve), `valid`/`buggy` statuses, `schema_version`, plus v4 events `instruction_added`/`experiment_approved`/`experiment_rejected` (doc 03). **Live fork execution, approval gate, mid-run instruct, and commit-per-node are core (P1).** **Research-memory panel + compare view + leaderboard + topbar status are CORE** frontend components; **cross-model/benchmarking compare view is P2**. **SQLite cut** (JSONL + in-memory only). Everything is tagged **P0/P1/P2** — build the P0 spine first, then P1 power features, then P2 benchmarking. Build order: contract + sample events + UI **before the trainer**. nanogpt can be a **recorded Kun-driven (Mode-A + `agent-edit`) run** (preferred), with an external-session→convert (Mode-B ingest) fallback; honesty + rich-trajectory requirements apply either way.
+> **Reconciled with [`00-spec.md`](00-spec.md) (canonical; wins on conflict).** v4 deltas: the **LLM is the driver** via a **LiteLLM model id** (LiteLLM is IN — provider-agnostic planning + a minimal per-mission model picker, powering **model benchmarking**, P2); heuristic planner is fallback/baseline. Kun supports **both Mode A (Kun drives) and Mode B (Kun observes/steers an external loop)** plus a **Mode-B feedback channel** (`GET /missions/{id}/state`). The **code patcher** has two implementations: **`config-patch` (P0)** + **`agent-edit` (P1, orchestrates Claude Code/Codex to edit real model code)**. Ship the engine-agnostic **open logging contract + ~5-line `kun_log` emit helper** as a first-class deliverable (the wedge) — every producer is an equal citizen, and an **independent external loop emitting live** is a DoD. Emit `operator` (draft/debug/improve), `valid`/`buggy` statuses, `schema_version`, plus v4 events `instruction_added`/`experiment_approved`/`experiment_rejected` (doc 03). **Live fork execution, approval gate, mid-run instruct, and commit-per-node are core (P1).** **Research-memory panel + leaderboard + topbar status are CORE (P0)** frontend components; the node-view **`compare` view has moved P0→P1** (built first in P1 — pure cockpit craft, not cut); the **cross-model/benchmarking compare view stays P2**. **SQLite cut** (JSONL + in-memory only). Everything is tagged **P0/P1/P2** — build the P0 spine first, then P1 power features, then P2 benchmarking. **v5 deltas (no scope added, nothing deleted):** **craft-first** is the operating principle (concentrate P0 hours on the graph + research-memory panel + the closed constraint loop *firing visibly* — the only winnable moat in the timeframe); the node-view `compare` view moved P0→P1; **`agent-edit` is explicitly gated** on the doc-08 sanity spike (recorded-only, the top scope-trap / most-droppable P1 item); two independent time-safety valves — a **graceful drop-order** and an independent **`agent-edit` risk gate** (see build order below). Build order: contract + sample events + UI **before the trainer**. nanogpt can be a **recorded Kun-driven (Mode-A + `agent-edit`) run** (preferred), with an external-session→convert (Mode-B ingest) fallback; honesty + rich-trajectory requirements apply either way.
 
 ## Purpose
 
@@ -146,7 +146,7 @@ Build the main product UI.
 - Experiment detail panel.
 - Metrics chart.
 - Diff viewer (react-diff-viewer, not Monaco).
-- Compare view (CORE): diff two nodes' configs + overlay their metric curves.
+- Compare view (P1, built FIRST in P1): diff two nodes' configs + overlay their metric curves. (Moved out of P0 — pure cockpit craft, not cut. The `CompareView.tsx` file is still built, just in P1.)
 - Research-memory panel (CORE): mission-wide accumulated constraints/learnings; a new learned constraint visibly enters it and reshapes the next proposal.
 - Leaderboard (results table sorted by metric).
 - Topbar status: mission name, best metric, current experiment, budget used, mode (**A-live / B-observe / replay / paused**), runtime, model.
@@ -166,7 +166,7 @@ Build the main product UI.
 - `web/src/components/ExperimentDetails.tsx`
 - `web/src/components/MetricsChart.tsx`
 - `web/src/components/DiffViewer.tsx`
-- `web/src/components/CompareView.tsx`
+- `web/src/components/CompareView.tsx` (P1)
 - `web/src/components/ResearchMemoryPanel.tsx`
 - `web/src/components/Leaderboard.tsx`
 - `web/src/components/TopbarStatus.tsx`
@@ -253,29 +253,37 @@ Make the hackathon presentation reliable and impressive.
 ## Suggested parallelization order
 
 > Respect the P0 → P1 → P2 gates (spec §9). UI before the trainer; ship the contract + emit helper + sample `events.jsonl` earliest so every other track builds against it.
+>
+> **Craft-first (operating principle, spec §7/§9):** for the demo the only winnable moat is **cockpit craft** — the graph, the research-memory panel, and the closed constraint loop *firing visibly* — so concentrate P0 hours there. The open-standard framing is nearly free structurally (`kun_log` ~5 lines + the Beat-2 producer ~15 lines) and does not trade against polish; the heavy P1/P2 machinery is what does, which is why it's gated.
 
 ### P0 — spine (start immediately; do these first)
 
 1. Backend/event schema (+v4 deltas) + open logging contract + ~5-line `kun_log` emit helper (both paths: `$KUN_EVENTS` + `/missions/{id}/ingest`) + hand-authored rich sample `events.jsonl`.
-2. Frontend static-replay cockpit on the sample (graph + node-view quad: detail/diff/leaderboard/compare + research-memory panel + event stream + topbar).
+2. Frontend static-replay cockpit on the sample (graph + node-view **triad: detail/diff/leaderboard** + research-memory panel + event stream + topbar). *(`compare` moved to P1 — see below.)*
 3. Tiny CNN trainer + one-experiment runner (`config-patch`).
 4. LLM-driven loop (Mode A) + budget/stop → `mission_finished` + the closed constraint loop (hero).
 5. Live SSE + visual fork + replay.
 
 ### P1 — power features (start only after the P0 spine demos end-to-end)
 
-6. `agent-edit` patcher (orchestrate Claude Code/Codex on real code).
+6. **`compare` view** (moved P0→P1; build FIRST in P1) — diff two nodes' configs + overlay metric curves; pure cockpit craft, the most-wanted ML action.
 7. Live fork execution (Mode A) + approval gate + mid-run instruct.
-8. Mode-B feedback channel (`GET /missions/{id}/state`) + commit-per-node.
-9. Recorded Mode-A-on-real-code (nanogpt) run → serious replay.
+8. **`agent-edit` patcher** (orchestrate Claude Code/Codex on real code) — **GATED:** build only after the doc-08 sanity spike passes; fall back to `config-patch` the instant a cycle flakes; it can't be demoed live (recorded-only) and is the top scope-trap / most-droppable P1 item.
+9. Mode-B feedback channel (`GET /missions/{id}/state`) + commit-per-node.
+10. Recorded Mode-A-on-real-code (nanogpt) run → serious replay.
 
 ### P2 — second demo story (start only after P1 hero steering works)
 
-10. LiteLLM model picker + model benchmarking + cross-model compare view.
-11. Demo polish.
-12. Desktop wrapper if time.
+11. LiteLLM model picker + model benchmarking + cross-model compare view (`BenchmarkCompareView.tsx`; distinct from the P1 node-view `compare`).
+12. Demo polish.
+13. Desktop wrapper if time.
 
 > Gates (spec §9): UI before the trainer. Do NOT start P1 until the P0 spine demos end-to-end; do NOT start P2 until P1's hero steering works.
+
+**Two independent time-safety valves (spec §9 — don't conflate them):**
+
+1. **Graceful drop-order** — when time runs low and everything built so far works, drop in **reverse build order, never touching P0**: **benchmarking (P2) → commit-per-node → Mode-B feedback channel → approval gate + mid-run instruct → recorded nanogpt run → `compare`.** A finished P0 + a clean slice of P1 beats a sprawl of half-built features.
+2. **`agent-edit` risk gate** — *independent of how much time is left.* Build `agent-edit` only after the doc-08 sanity spike passes; if the spike fails or any later `agent-edit → train → eval` cycle flakes, fall back to `config-patch` immediately. It can't be demoed live (recorded-only) and is the top scope-trap, so it's often the first P1 item abandoned — expected, not a failure.
 
 ## Execution & integration (worktrees, ownership, merge order)
 
@@ -299,13 +307,13 @@ For a heavy parallel build, run each coding agent in its own **git worktree + br
 **Integration order** (mirrors the P0 → P1 → P2 build order):
 
 1. event schema + open contract + emit helper + hand-authored sample `events.jsonl` (E + A)
-2. cockpit UI against the static replay (D)
+2. cockpit UI against the static replay — P0 node-view **triad: detail/diff/leaderboard** + graph + research-memory panel + topbar (D)
 3. backend live event stream / SSE (A)
 4. tiny-CNN loop + `config-patch` (B + C)
-5. live SSE wiring + fork / approval gate / instruct (A + D)
-6. `agent-edit` patcher (B), Mode-B feedback channel (A), commit-per-node
+5. P1 begins: node-view **`compare` view** FIRST (D), then live SSE wiring + fork / approval gate / instruct (A + D)
+6. `agent-edit` patcher (B) **[GATED — doc-08 spike; fall back to `config-patch` if it flakes]**, Mode-B feedback channel (A), commit-per-node
 7. nanogpt convert/record → serious replay (E)
-8. benchmarking + cross-model compare (C + D), then polish (F)
+8. benchmarking + cross-model `BenchmarkCompareView` (C + D), then polish (F)
 
 Rationale: the UI works against the static replay first; the backend then replaces static data with live events; the loop emits real events; heavy/credibility work and benchmarking come last. Don't merge multiple large branches blindly — one at a time, with that area's checks green.
 
@@ -326,7 +334,7 @@ You are implementing Kun's live ML demo adapter AND the code patcher. Build a Fa
 ### Frontend agent prompt
 
 ```text
-You are implementing Kun's cockpit UI. Build a Vite React app with: React Flow trajectory graph (nodes badged by `operator`, colored by `valid`/`buggy` status), experiment details, metrics chart, diff viewer (react-diff-viewer), leaderboard, compare view (diff two nodes + overlay curves), research-memory panel (mission-wide accumulated constraints), topbar status (mode = A-live / B-observe / replay / paused), event stream, and **steering controls: fork dialog + approval gate (approve/reject/edit a pending proposal) + mid-run instruct box + stop/pause**. Research-memory and compare are CORE, not optional. Add a **cross-model / benchmarking compare view (P2)** — the same mission under N models side-by-side, compared as autoresearchers. The UI is driven by Kun JSONL events and works with both static replay files and live SSE events. Keep the UI trajectory-first.
+You are implementing Kun's cockpit UI. Build a Vite React app with: React Flow trajectory graph (nodes badged by `operator`, colored by `valid`/`buggy` status), experiment details, metrics chart, diff viewer (react-diff-viewer), leaderboard, compare view (`CompareView.tsx` — diff two nodes + overlay curves, **P1**), research-memory panel (mission-wide accumulated constraints), topbar status (mode = A-live / B-observe / replay / paused), event stream, and **steering controls: fork dialog + approval gate (approve/reject/edit a pending proposal) + mid-run instruct box + stop/pause**. Craft-first: the P0 moat is the graph + research-memory panel + the closed constraint loop firing visibly — spend P0 hours there. **Research-memory is CORE (P0), not optional**; the node-view **`compare` view is P1 (build it FIRST in P1 — moved out of P0, not cut)**. Add a separate **cross-model / benchmarking compare view (`BenchmarkCompareView.tsx`, P2)** — the same mission under N models side-by-side, compared as autoresearchers. The UI is driven by Kun JSONL events and works with both static replay files and live SSE events. Keep the UI trajectory-first.
 ```
 
 ### modded-nanogpt agent prompt

@@ -212,7 +212,7 @@ Only add after the must-have loop and cockpit work.
 - prompt/tool trace detail
 - desktop shell via Electron or Tauri
 
-**Note (v2):** learned constraints are no longer a nice-to-have — the **research-memory panel** (mission-wide accumulated constraints) is now a *core* surface, and the closed loop (failure → learned constraint → reshapes the next proposal) is the hero demo beat. See spec §6/§7. Likewise the **human approval gate** is now core (P1), and **model benchmarking + cross-model compare** are in scope as the **P2** second demo story; **compare-two-experiments** is a core view (spec §6/§7/§8 Beat 5).
+**Note (v2):** learned constraints are no longer a nice-to-have — the **research-memory panel** (mission-wide accumulated constraints) is now a *core* surface, and the closed loop (failure → learned constraint → reshapes the next proposal) is the hero demo beat. See spec §6/§7. Likewise the **human approval gate** is now core (P1), and **model benchmarking + cross-model compare** are in scope as the **P2** second demo story. **(v5: compare-two-experiments moved P0 → P1** — the P0 node-view is the detail/diff/leaderboard triad; `compare` is built first in P1 so the P0 craft budget concentrates on the graph + research-memory panel + the closed constraint loop. The cross-model compare view stays P2.) See spec §6/§7/§9.
 
 Example:
 

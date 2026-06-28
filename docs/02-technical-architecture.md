@@ -414,7 +414,7 @@ Views:
 - ExperimentDetails
 - MetricsChart
 - DiffViewer
-- CompareView (core — diff two nodes' configs + overlay their metric curves)
+- CompareView (P1 — diff two nodes' configs + overlay their metric curves; moved out of the P0 node-view, which is the detail/diff/leaderboard triad)
 - ResearchMemoryPanel (core — mission-wide accumulated constraints/learnings)
 - CrossModelCompareView (P2 — same mission under N models; ranks models as autoresearchers; spec §8 Beat 5)
 - Leaderboard (results table sorted by metric)
