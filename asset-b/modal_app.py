@@ -27,6 +27,11 @@ import modal
 REPO = "/root/modded-nanogpt"
 DATA_DIR = f"{REPO}/data/fineweb10B"   # cached_fineweb10B.py writes here; we back it with a Volume
 LOGS_DIR = f"{REPO}/logs"             # train_gpt.py writes logs/<run_id>.txt; back it with a Volume
+# 8 = the model's NATIVE config (world_size=8, grad_accum=1, sharded Muon) that every record was
+# trained on. Single-GPU (world_size=1 -> grad_accum=8, comms="none") trains INCORRECTLY for this
+# SOTA config (val_loss rises/diverges), so we run the real 8-GPU path.
+# Note: a single 8xH100 container can take a few retries to provision (capacity); just re-run.
+N_GPU = 8
 
 # --- Image: CUDA 12.8 + py3.12 + requirements + torch nightly cu128 ---
 # NOTE: the repo's committed Dockerfile says cu126, but it is STALE (last touched 2025-05). The
@@ -72,9 +77,9 @@ def download_data(num_chunks: int = 8):
     print(f"OK: downloaded val + {num_chunks} train chunks to the nanogpt-fineweb Volume")
 
 
-@app.function(gpu="H100", volumes={DATA_DIR: data_vol, LOGS_DIR: logs_vol, CACHE_DIR: cache_vol}, timeout=45 * 60)
+@app.function(gpu=f"H100:{N_GPU}", volumes={DATA_DIR: data_vol, LOGS_DIR: logs_vol, CACHE_DIR: cache_vol}, timeout=45 * 60)
 def train(run_id: str | None = None, disable_fp8: bool = False) -> dict:
-    """Run ONE experiment: single-GPU train of the CURRENT (edited) train_gpt.py.
+    """Run ONE experiment: {N_GPU}x-H100 train of the CURRENT (edited) train_gpt.py.
 
     The 45-min timeout is a runaway-cost guard (~$3 max/run on H100); raise it only if a
     legitimately longer run is needed.
@@ -86,8 +91,8 @@ def train(run_id: str | None = None, disable_fp8: bool = False) -> dict:
     torch.compile + triton caches are persisted on a Volume. Training itself is cheap
     (~0.3-0.5s/step), so compile dominates — prefer running ENOUGH steps to learn, not fewer.
 
-    run.sh is `torchrun --standalone --nproc_per_node=8 train_gpt.py`; we force 1 GPU.
-    grad_accum_steps = 8 // world_size, so 1 GPU keeps the SAME effective batch (just ~8x slower).
+    run.sh is `torchrun --standalone --nproc_per_node=8 train_gpt.py` — we run that native 8-GPU
+    config (grad_accum=1, sharded Muon), the one the records were trained on.
     Keep FP8 ON for H100 (Hopper); only set disable_fp8=True on non-Hopper cards.
     """
     import subprocess, os, glob, uuid
@@ -103,7 +108,7 @@ def train(run_id: str | None = None, disable_fp8: bool = False) -> dict:
     os.makedirs(env["TORCHINDUCTOR_CACHE_DIR"], exist_ok=True)
     os.makedirs(env["TRITON_CACHE_DIR"], exist_ok=True)
     before = set(glob.glob(f"{LOGS_DIR}/*.txt"))   # snapshot so we return THIS run's log, not a stale one
-    cmd = ["torchrun", "--standalone", "--nproc_per_node=1", "train_gpt.py"]
+    cmd = ["torchrun", "--standalone", f"--nproc_per_node={N_GPU}", "train_gpt.py"]
     print(f"[{rid}] launching: {' '.join(cmd)}  (first run ~20 min compile; later runs faster via cached kernels)")
     # No capture_output → the child's stdout/stderr STREAM live to the Modal run terminal.
     r = subprocess.run(cmd, cwd=REPO, env=env)
