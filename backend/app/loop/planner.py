@@ -16,7 +16,11 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from .constraints import constraints_prompt_block, violated_constraints
+from .constraints import (
+    constraints_prompt_block,
+    soft_lessons_prompt_block,
+    violated_constraints,
+)
 from .schemas import Constraint, Proposal
 
 
@@ -39,6 +43,9 @@ class PlanContext:
     allowed_changes: List[str]
     baseline_config: Dict[str, Any]
     objective: Dict[str, Any]
+    # SOFT lessons (no bound) — positive Σ-summaries that BIAS the next proposal
+    # without ever hard-rejecting. Injected into the prompt alongside the bans.
+    soft_lessons: List[Constraint] = field(default_factory=list)
 
 
 @dataclass
@@ -161,6 +168,12 @@ def _heuristic_propose(ctx: PlanContext) -> ProposalResult:
                 {"changes": changes, "violated": [c.constraint_id for c in viol]}
             )
             continue
+        rationale = f"{hypo} Building on the best valid node {parent.id}."
+        # Reference a prior win (soft lesson) so the chain of reasoning is visible.
+        prior_wins = [c for c in ctx.soft_lessons if c.bound is None]
+        if prior_wins:
+            ref = prior_wins[-1]
+            rationale += f" Builds on prior win {ref.constraint_id} ({ref.text})."
         return ProposalResult(
             proposal=Proposal(
                 operator="improve",
@@ -168,7 +181,7 @@ def _heuristic_propose(ctx: PlanContext) -> ProposalResult:
                 changes=changes,
                 expected_outcome=f"Improve {metric} over the current best.",
                 risk="medium" if param == "learning_rate" else "low",
-                rationale=f"{hypo} Building on the best valid node {parent.id}.",
+                rationale=rationale,
             ),
             parent_id=parent.id,
             parent_config=parent_config,
@@ -220,6 +233,8 @@ def _llm_user_prompt(ctx: PlanContext, best: Optional[NodeView], note: str = "")
         f"Recent history:\n" + ("\n".join(history) or "  (none)") + "\n"
         f"ACTIVE CONSTRAINTS (you MUST respect these bounds):\n"
         f"{constraints_prompt_block(ctx.constraints)}\n"
+        f"PRIOR WINS (soft lessons — bias only, you may build on these):\n"
+        f"{soft_lessons_prompt_block(ctx.soft_lessons)}\n"
         f"{note}\n"
         "Propose the next experiment as JSON."
     )
