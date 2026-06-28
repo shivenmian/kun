@@ -36,6 +36,7 @@ for p in (REPO_ROOT, BACKEND_ROOT):
 from kun.log import kun_log  # noqa: E402
 
 from app.loop import constraints as C  # noqa: E402
+from app.loop import memory_writer as MW  # noqa: E402
 from app.loop import evaluator as EV  # noqa: E402
 from app.loop import decider as DEC  # noqa: E402
 from app.loop import planner as PL  # noqa: E402
@@ -550,6 +551,29 @@ def run_mission(
             if hit:
                 stop_reason = "target_metric_reached"
                 break
+
+    # --- GATED LLM memory-writer (doc 11 #4): distill durable SOFT lessons -----
+    # Purely additive, soft-tier only, and OFF unless KUN_MEMORY_WRITER=1 (so the
+    # deterministic demo is byte-for-byte unchanged). Any flake -> no-op ([]),
+    # never raises into the loop. Emitted as constraint_learned with NO bound,
+    # identical in shape to the deterministic Σ-summary soft lessons above.
+    if MW.enabled(llm):
+        try:
+            distilled = MW.distill_soft_lessons(
+                nodes=nodes, existing_lessons=soft_lessons, llm=llm,
+                id_start=learned_counter,
+            )
+        except Exception:
+            distilled = []
+        for lesson in distilled:
+            learned_counter += 1
+            soft_lessons.append(lesson)
+            lesson_env = {"branch_id": BRANCH_MAIN}
+            if best_id is not None:
+                lesson_env["experiment_id"] = best_id
+            emit("constraint_learned", lesson.to_payload(), **lesson_env)
+            print(f"[memory-writer] distilled soft lesson "
+                  f"{lesson.constraint_id}: {lesson.text}", flush=True)
 
     finished = {
         "status": "completed",
