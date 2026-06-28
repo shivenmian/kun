@@ -26,10 +26,13 @@ export function TopbarStatus({
   state,
   selected,
   modeLabel,
+  runState,
 }: {
   state: MissionState;
   selected?: Experiment;
   modeLabel: string;
+  /** Live Mode-A loop run_state from GET /state (CONTRACT §9.1). */
+  runState?: "run" | "paused" | "stopped" | "finished";
 }) {
   const m = state.mission;
   const best = state.bestMetric;
@@ -67,6 +70,21 @@ export function TopbarStatus({
           {modeLabel}
         </span>
       </Stat>
+      {runState && (
+        <Stat label="Run">
+          <span
+            className={
+              runState === "run"
+                ? "text-emerald-400"
+                : runState === "paused"
+                ? "text-amber-400"
+                : "text-neutral-400"
+            }
+          >
+            {runState}
+          </span>
+        </Stat>
+      )}
       <Stat label="Runtime">{runtimeFromEvents(state)}</Stat>
       <Stat label="Model">
         <span className="font-mono text-xs">{m?.model ?? "—"}</span>
