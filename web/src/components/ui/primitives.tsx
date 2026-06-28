@@ -102,3 +102,73 @@ export function Badge({
     />
   );
 }
+
+export function Label({ className, ...props }: React.LabelHTMLAttributes<HTMLLabelElement>) {
+  return (
+    <label
+      className={cn("mb-1 block text-[10px] uppercase tracking-wide text-neutral-500", className)}
+      {...props}
+    />
+  );
+}
+
+export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={cn(
+        "h-9 rounded-md border border-neutral-700 bg-neutral-950 px-2 text-sm text-neutral-100 focus:border-sky-500 focus:outline-none",
+        className
+      )}
+      {...props}
+    />
+  );
+}
+
+/** Lightweight backdrop modal (no Radix). Matches ForkDialog's visual language. */
+export function Modal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  children,
+  footer,
+  size = "md",
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  size?: "md" | "lg";
+}) {
+  if (!open) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className={cn(
+          "flex max-h-[90vh] w-full flex-col rounded-lg border border-neutral-700 bg-neutral-900 shadow-xl",
+          size === "lg" ? "max-w-2xl" : "max-w-md"
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-neutral-800 px-4 py-3">
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-100">{title}</h3>
+            {subtitle && <div className="mt-0.5 text-[11px] text-neutral-500">{subtitle}</div>}
+          </div>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200">
+            ✕
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-3">{children}</div>
+        {footer && (
+          <div className="flex justify-end gap-2 border-t border-neutral-800 px-4 py-3">{footer}</div>
+        )}
+      </div>
+    </div>
+  );
+}
