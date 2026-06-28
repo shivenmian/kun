@@ -23,8 +23,10 @@ from app.events import (
     append_event,
     events_path,
     list_missions,
+    list_replays,
     mission_exists,
     read_events,
+    read_events_file,
     register_mission,
 )
 from app.events.log_io import _REGISTERED
@@ -109,6 +111,37 @@ def get_missions() -> Dict[str, Any]:
     # most-recently-updated first; missions with no timestamp sort last (stable).
     summaries.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
     return {"missions": summaries}
+
+
+def _replay_summary(rid: str, path) -> Optional[Dict[str, Any]]:
+    """Summarize one bundled replay file (CONTRACT §5.3). Returns None if it can't
+    be parsed/built, so one bad file never breaks the catalog."""
+    try:
+        events = read_events_file(path)
+        if not events:
+            return None
+        state = build_state(events)
+        mission = state.get("mission") or {}
+        return {
+            "id": rid,
+            "name": mission.get("name") or rid,
+            # repo-relative; register() resolves it against REPO_ROOT (CONTRACT §5.3)
+            "events_path": f"examples/replays/{rid}.events.jsonl",
+            "experiments_count": len(state.get("experiments", [])),
+            "best": _compute_best(state),
+        }
+    except Exception:
+        return None
+
+
+@router.get("/replays")
+def get_replays() -> Dict[str, Any]:
+    """Replay catalog (CONTRACT §5.3): discovered from examples/replays/*.events.jsonl
+    on disk — drop a *.events.jsonl in and it appears, nothing hardcoded. Unparseable
+    files are skipped. The web loads one via registerMission(id, events_path) -> observe."""
+    out = [s for rid, p in list_replays() if (s := _replay_summary(rid, p)) is not None]
+    out.sort(key=lambda s: s.get("name") or s.get("id") or "")
+    return {"replays": out}
 
 
 @router.post("/missions")

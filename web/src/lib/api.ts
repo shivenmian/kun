@@ -200,6 +200,43 @@ export async function getMissions(): Promise<MissionSummary[]> {
   }
 }
 
+export interface ReplaySummary {
+  id: string;
+  name?: string | null;
+  events_path?: string | null;
+  experiments_count?: number | null;
+  best?: { experiment_id?: string; metric?: { name?: string; value?: number } } | null;
+}
+
+/** Discover the bundled replay catalog (CONTRACT §5.3) — scanned from
+ *  examples/replays/*.events.jsonl on the backend. Never throws → [] on failure
+ *  so the gallery can fall back to the offline sample. */
+export async function getReplays(): Promise<ReplaySummary[]> {
+  try {
+    const r = await fetch(`${API_BASE}/replays`);
+    if (!r.ok) return [];
+    const raw = ((await r.json()) as { replays?: unknown })?.replays;
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((m): ReplaySummary | null => {
+        if (!m || typeof m !== "object") return null;
+        const o = m as Record<string, unknown>;
+        if (typeof o.id !== "string" || !o.id) return null;
+        return {
+          id: o.id,
+          name: (o.name as string | null) ?? null,
+          events_path: (o.events_path as string | null) ?? null,
+          experiments_count:
+            typeof o.experiments_count === "number" ? o.experiments_count : null,
+          best: (o.best as ReplaySummary["best"]) ?? null,
+        };
+      })
+      .filter((m): m is ReplaySummary => m !== null);
+  } catch {
+    return [];
+  }
+}
+
 export async function createMission(payload: Record<string, unknown>): Promise<Response> {
   return fetch(`${API_BASE}/missions`, {
     method: "POST",

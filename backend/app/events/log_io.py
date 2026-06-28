@@ -93,10 +93,9 @@ def append_event(
     )
 
 
-def read_events(mission_id: str) -> List[Dict[str, Any]]:
-    """Read the full event log as a list of dicts. Missing file -> []. Tolerant of a
+def read_events_file(path: Path) -> List[Dict[str, Any]]:
+    """Read a JSONL event log at an arbitrary path. Missing file -> []. Tolerant of a
     half-written trailing line (the tailer may catch the file mid-append)."""
-    path = events_path(mission_id)
     if not path.exists():
         return []
     out: List[Dict[str, Any]] = []
@@ -110,6 +109,26 @@ def read_events(mission_id: str) -> List[Dict[str, Any]]:
             except json.JSONDecodeError:
                 # partial trailing line during a concurrent append — skip it
                 continue
+    return out
+
+
+def read_events(mission_id: str) -> List[Dict[str, Any]]:
+    """Read a mission's full event log as a list of dicts (see read_events_file)."""
+    return read_events_file(events_path(mission_id))
+
+
+REPLAYS_DIR = REPO_ROOT / "examples" / "replays"
+
+
+def list_replays() -> List[tuple]:
+    """Discover bundled replays on disk: every examples/replays/*.events.jsonl.
+    Returns (id, abs_path) pairs (id = filename minus '.events.jsonl'), sorted by id.
+    The catalog is the filesystem — drop a file in and it appears (CONTRACT §5.3)."""
+    out: List[tuple] = []
+    if REPLAYS_DIR.exists():
+        for p in sorted(REPLAYS_DIR.glob("*.events.jsonl")):
+            rid = p.name[: -len(".events.jsonl")]
+            out.append((rid, p))
     return out
 
 

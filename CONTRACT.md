@@ -201,6 +201,25 @@ tolerant). `approval_required`/`pending_approval` reuse the same derivation as `
 (§9.1/§9.2) so the mission-navigator can flag missions that need a human. **W1/API owns this
 handler; WEB consumes it read-only.**
 
+### 5.3 `GET /replays` — bundled replay catalog (discovered, not hardcoded)
+
+So the cockpit's replay gallery auto-populates from disk: scans `examples/replays/*.events.jsonl`
+and returns one summary per file (derived from each file's events via `build_state` — no new
+events). Drop a new `*.events.jsonl` in and it appears; nothing hardcoded.
+
+```json
+{ "replays": [
+  { "id": "nanogpt",                                  // filename minus ".events.jsonl"
+    "name": "modded-nanogpt speedrun",                // mission_created.name, else the id
+    "events_path": "examples/replays/nanogpt.events.jsonl",  // repo-relative (register resolves it)
+    "experiments_count": 7,
+    "best": { "experiment_id": "exp_006", "metric": {"name":"val_loss","value":3.238} } } // or null
+] }
+```
+Sorted by name. Unparseable/empty files are skipped (never 500s). The web loads a chosen replay by
+`registerMission(id, events_path)` → observe (the `sample` id may also load offline from
+`web/public/`). **W1/API owns the handler; WEB consumes it read-only.**
+
 ---
 
 ## 6. Ownership boundaries (disjoint; enforce)
