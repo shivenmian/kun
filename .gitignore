@@ -10,6 +10,17 @@ venv/
 # Node
 node_modules/
 dist/
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+
+# Python build
+*.egg-info/
+.pytest_cache/
+
+# Local datasets (Fashion-MNIST download cache)
+data/
 
 # Env / secrets
 .env

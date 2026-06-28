@@ -178,3 +178,46 @@ SQLite** · LiteLLM (provider-agnostic `propose(...)`) · Fashion-MNIST tiny CNN
 
 Tiny-CNN config knobs (doc 04 M2): `learning_rate, optimizer, batch_size, dropout,
 conv_channels, weight_decay, augmentation, scheduler, epochs, seed`.
+
+---
+
+## 8. Phase-0 lead decisions (authoritative; added by orchestrator)
+
+These resolve the open choices §5 left to Phase 0. Build against them.
+
+### 8.1 Live-ingest = FILE-TAIL (the single live code path)
+
+There is **one** live mechanism for BOTH modes: the backend tails
+`runs/<mission_id>/events.jsonl` and pushes appended lines over SSE.
+
+- **Per-mission log path is conventional:** `runs/<mission_id>/events.jsonl`. The
+  state builder reads it; `/stream` tails it; replay reads the same file. Live and
+  replay are literally the same bytes → satisfies "same event shape / same code path."
+- **Mode A** (Kun's own loop, W3) appends via `kun_log(..., path=runs/<id>/events.jsonl)`.
+- **Mode B** (external producer, Asset C) appends via `$KUN_EVENTS` pointed at
+  `runs/<external_mission_id>/events.jsonl`, calling only `kun_log` — no HTTP, no
+  backend import (keeps the wedge "obviously not Kun").
+- We do **NOT** build `POST /missions/{id}/ingest` for P0. (Left for P1 if ever needed.)
+
+### 8.2 External-mission registration entry point (additive endpoint, W1)
+
+So an externally-produced log the backend never created still appears live:
+
+`POST /missions/register` — body `{ "mission_id": "...", "events_path": "..."? }`.
+Registers the mission id, defaults `events_path` to `runs/<mission_id>/events.jsonl`,
+hydrates state from existing lines, and starts a tailer that streams new lines over the
+normal `/stream` SSE. This is **additive** — it renames none of the frozen §5 paths.
+
+- The cockpit (W2) gets a small "Observe external mission" affordance (enter a
+  `mission_id`) that POSTs `/missions/register`, then opens `/stream`. A documented
+  `curl` is the fallback so the demo never depends on the UI field.
+- For the demo, `examples/external_loop_demo.py` writes to
+  `runs/mission_external_demo/events.jsonl` (mission_id-consistent). The lead wires this
+  during Phase 2; W3 does not touch it.
+
+### 8.3 `kun/log.py` gains an optional `path=` kwarg (done in Phase 0, lead)
+
+`kun_log(type, payload, path=..., **envelope)` — `path` overrides `$KUN_EVENTS` and
+auto-creates the parent dir. External producers omit it (still the ~5-line surface);
+the backend/loop pass `path=runs/<id>/events.jsonl`. **`kun_log` remains the single emit
+helper everything uses** (non-negotiable). Do not append to JSONL by any other means.

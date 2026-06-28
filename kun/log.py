@@ -11,6 +11,10 @@ import uuid
 
 
 def kun_log(event_type, payload, **envelope):
+    # Optional `path=` overrides $KUN_EVENTS so the backend can append to a
+    # specific per-mission log (runs/<mission_id>/events.jsonl). External
+    # producers omit it and keep using $KUN_EVENTS — the ~5-line surface.
+    path = envelope.pop("path", None) or os.environ.get("KUN_EVENTS", "events.jsonl")
     rec = {
         "schema_version": 1,
         "event_id": "evt_" + uuid.uuid4().hex[:12],
@@ -21,6 +25,9 @@ def kun_log(event_type, payload, **envelope):
         "payload": payload,
         **envelope,
     }
-    with open(os.environ.get("KUN_EVENTS", "events.jsonl"), "a") as f:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "a") as f:
         f.write(json.dumps(rec) + "\n")
     return rec

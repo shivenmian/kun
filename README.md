@@ -56,6 +56,36 @@ Live task: Fashion-MNIST tiny CNN
 Serious replay: modded-nanogpt recorded trajectory
 ```
 
+## Development (local)
+
+Two processes — FastAPI backend and the Vite cockpit.
+
+```bash
+# 1) Backend (FastAPI + SSE on :8000)
+cd backend
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+
+# 2) Cockpit (Vite + React on :5173, proxies /api -> :8000)
+cd web
+npm install
+npm run dev
+```
+
+Then open the cockpit and load the bundled replay
+`examples/replays/sample.events.jsonl` (the static replay renders with no backend
+running). For a live tiny-CNN mission, set `ANTHROPIC_API_KEY` in `backend/.env`
+(the loop falls back to a heuristic planner with no key). The wedge proof:
+
+```bash
+KUN_EVENTS=runs/mission_external_demo/events.jsonl python examples/external_loop_demo.py
+# then "Observe external mission" -> mission_external_demo in the cockpit (or curl POST /missions/register)
+```
+
+The event log is the single source of truth: every mission lives at
+`runs/<mission_id>/events.jsonl`; live and replay consume the same bytes.
+
 ## Documentation map
 
 - [`docs/00-spec.md`](docs/00-spec.md) - **canonical post-audit build spec. Read this first; it wins over docs 01–07 where they conflict.**

@@ -1,0 +1,11 @@
+# Kun backend (FastAPI + SSE; JSONL only, no SQLite). Pinned per CONTRACT.md §7.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+sse-starlette==2.1.3
+pydantic==2.10.4
+pyyaml==6.0.2
+litellm==1.57.4
+# Tiny-CNN trainer (W3). CPU is fine for the demo.
+torch==2.5.1
+torchvision==0.20.1
+numpy==2.2.1
