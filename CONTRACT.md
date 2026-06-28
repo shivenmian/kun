@@ -176,6 +176,27 @@ module (`kun_log`), exactly like P0 endpoints. **W1/API owns these handlers.**
 | `GET`  | `/missions/{id}/state` | — | Mode-B feedback channel + UI hydrate. Pure read over the event log + control file (§9.1). | state object (§9.1) |
 | `POST` | `/missions/{id}/fork` | (P0 body) | **P1 extends:** in Mode A also enqueues an executable fork (§9.3). Still emits `fork_created`+`branch_created`(+`constraint_added`). | `{branch_id}` |
 
+### 5.2 `GET /missions` enriched response (mission history / control panel)
+
+`GET /missions` (already live, previously returned bare ids) is **enriched** to return one
+summary object per known mission so the cockpit can render a mission-history panel. Backward
+shape note: `missions` stays a list, but each item becomes an **object** (was a string). Derived
+purely from each mission's event log (`build_state`) + its control file (§9.2) — no new events.
+
+```json
+{ "missions": [
+  { "mission_id": "mission_abc",
+    "name": "Fashion-MNIST CNN Accuracy Sprint",
+    "run_state": "run | paused | stopped | finished",   // §9.1 vocabulary (control.json + mission_finished)
+    "mode": "live | replay | observe | null",            // from mission_started; "observe" if registered-external
+    "experiments_count": 6,
+    "best": { "experiment_id": "exp_004", "metric": {"name":"val_accuracy","value":0.902} },  // or null
+    "updated_at": "<iso timestamp of the last event>" } 
+] }
+```
+Sorted most-recently-updated first. Missing/unknown fields are omitted or null (builder stays
+tolerant). **W1/API owns this handler; WEB consumes it read-only.**
+
 ---
 
 ## 6. Ownership boundaries (disjoint; enforce)
