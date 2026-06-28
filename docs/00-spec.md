@@ -111,7 +111,7 @@ Grid/random over the tiny-CNN knobs (lr, optimizer, dropout, scheduler) + canned
 ### Budget, stop conditions & controls
 - **Stop conditions:** `max_experiments`, `max_runtime_per_experiment_sec`, optional `target_metric_reached`. First hit terminates → emits `mission_finished` with the best node (the demo's "mission complete" beat).
 - **Human controls (all give the cockpit teeth):**
-  - **Stop / pause** (P0).
+  - **Stop / pause** (P0). *(Status: only the **automatic** budget/stop → `mission_finished` shipped in the P0 spine; the **human** stop/pause control was deferred and is carried into P1 steering — see §7 and [doc 12](12-p1-handoff.md).)*
   - **Approval gate (P1):** pause-on-proposal — approve / reject / edit a proposed experiment *before* it runs (emits `experiment_approved` / `experiment_rejected`). Completes the "cockpit, not autopilot" story.
   - **Fork-from-node with constraint (P1 live exec):** in Mode A the fork **executes a real run**; in Mode B it queues an instruction (see feedback channel).
   - **Mid-run `instruct` (P1):** inject NL guidance (`instruction_added`) that biases the next proposal — steering without forking.
@@ -188,7 +188,7 @@ Each accepted node is a `git commit` on a per-trajectory branch (local, no GitHu
 ### P1 — power features (the reason it's a cockpit; build right after P0)
 - **`compare` view** (moved from P0): diff two nodes' configs + overlay metric curves. Build first in P1 — it's pure cockpit craft and the most-wanted ML action.
 - **Live fork execution** (Mode A).
-- **Approval gate** + **mid-run `instruct`**.
+- **Approval gate** + **mid-run `instruct`** + **Stop/Pause** (the human stop/pause control is tagged P0 in §4, but only the automatic budget/stop shipped in the P0 spine — build it here as part of steering; see [doc 12](12-p1-handoff.md)).
 - **`agent-edit` patcher** — Kun autoresearches *real code* (the big power-up). **Gated (see §9): build only after the doc-08 spike passes; fall back to `config-patch` the instant a cycle flakes.** Highest wow-per-hour *if* it works, but it can't be demoed live and is the top scope-trap — treat it as the most droppable P1 item.
 - **Mode-B feedback channel** (external loop reads back constraints/instructions → steering has teeth).
 - **commit-per-node** (synergizes with `agent-edit`).

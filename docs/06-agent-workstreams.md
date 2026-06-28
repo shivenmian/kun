@@ -268,7 +268,7 @@ Make the hackathon presentation reliable and impressive.
 
 6. **`compare` view** (moved P0→P1; build FIRST in P1) — diff two nodes' configs + overlay metric curves; pure cockpit craft, the most-wanted ML action.
 6b. **Research-memory enrichment** ([doc 11](11-research-memory-design.md)) — two-tier memory (deterministic hard `bound`s + bias-only soft lessons); more deterministic learned rules (e.g. underfitting), positive Σ-summary lessons, memory hygiene (merge + confidence growth), and a gated soft-tier LLM "memory writer". **Start here:** the underfitting→`dropout` bound + memory hygiene (merge + confidence growth) — see [doc 11](11-research-memory-design.md). Low-risk, high narrative value — build early in P1 (alongside `compare`); reuses the canonical constraint object (no schema change).
-7. Live fork execution (Mode A) + approval gate + mid-run instruct.
+7. Live fork execution (Mode A) + approval gate + mid-run instruct + **Stop/Pause** (carried forward — tagged P0 in spec §4 but only the automatic budget/stop shipped in the P0 spine; build `StopPauseControls.tsx` + `POST /missions/{id}/stop` here. See [doc 12](12-p1-handoff.md)).
 8. **`agent-edit` patcher** (orchestrate Claude Code/Codex on real code) — **GATED:** build only after the doc-08 sanity spike passes; fall back to `config-patch` the instant a cycle flakes; it can't be demoed live (recorded-only) and is the top scope-trap / most-droppable P1 item.
 9. Mode-B feedback channel (`GET /missions/{id}/state`) + commit-per-node.
 10. Recorded Mode-A-on-real-code (nanogpt) run → serious replay.
