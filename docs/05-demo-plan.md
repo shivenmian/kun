@@ -1,5 +1,7 @@
 # Kun Demo Plan
 
+> **Reconciled with [`00-spec.md`](00-spec.md) §8 (canonical; wins on conflict).** v4 deltas: the demo is **FIVE beats** — (1) serious run on **real code** (prefer a **recorded Kun-driven, Mode-A + `agent-edit`** nanogpt run — *"Kun drove this itself"*; fallback = external Claude-Code/Codex run converted via Mode-B ingest), (2) **ingest a genuinely independent external loop** (the wedge: a ~15-line non-Kun script emitting live via `kun_log`), (3) reliable live Fashion-MNIST (Mode A, `config-patch`), (4) **steer it live** (approval gate + mid-run instruct + fork-with-constraint, all executing live in Mode A), (5) **model benchmarking (P2)** — same mission under two models, cross-model compare. Kun supports **Mode A (drives) and Mode B (observes)**. **LiteLLM is in** (powers benchmarking); **live fork executes** in Mode A; the approval gate + instruct are real controls. The **LLM is the driver** (genuine autoresearch, not a scripted sweep). The **research-memory panel + closed constraint loop is the hero feature**. Main contribution = the **open standard for autoresearch trajectories + the cockpit/runtime** (add-on, not replacement). Detailed narration below is preserved; Paths A/B/C/D map onto Beats 1/4/3/4.
+
 ## Demo objective
 
 The demo should make one idea obvious:
@@ -8,30 +10,40 @@ The demo should make one idea obvious:
 
 ## Final demo structure
 
-Use three paths:
+Use five beats:
 
-1. **Serious recorded run**: modded-nanogpt replay.
-2. **Reliable live run**: Fashion-MNIST tiny CNN.
-3. **Fork/steering**: fork from a prior node, ideally shown on both replay and live path.
+1. **Serious run on real code** (credibility): a real autoresearch session on nanogpt that edits real training code. **Prefer** a recorded **Kun-driven (Mode-A + `agent-edit`)** run — *"Kun drove this itself."* **Fallback:** an external Claude-Code/Codex run whose real artifacts are converted (Mode-B ingest). Load as replay; walk the trajectory; start a fork to show the mechanism.
+2. **Ingest a genuinely independent external loop** (the wedge): a trivial, obviously-not-Kun ~15-line script that imports `kun_log` and emits a few experiments **live** → its nodes appear in the cockpit in real time. Decoupled from the nanogpt run, so the wedge proof doesn't depend on the GPU job.
+3. **Reliable live run**: Fashion-MNIST tiny CNN, Mode A, `config-patch`, driven by Kun's own LLM loop.
+4. **Steer it live**: on the live tiny-CNN mission, hit the approval gate (reject/edit a proposal), mid-run **instruct**, and **fork with a constraint** — the constraint enters the research-memory panel and deterministically reshapes the next proposal. All execute live because it's Mode A.
+5. **Model benchmarking (P2, optional)**: same mission under two models → cross-model compare view ranks them *as autoresearchers*. Drop first if time is tight.
+
+(The detailed "Path A/B/C/D" sections below predate this and map onto the beats: Path A → Beat 1; Path B fork-on-replay → the fork shown on the Beat 1 replay; Path C → Beat 3; Path D → Beat 4 live. Beat 2 and Beat 5 are detailed separately.)
 
 ## Opening line
 
-> W&B shows experiment runs. Agent observability shows traces. Kun shows the autonomous research trajectory: why each experiment happened, what changed, what evidence came back, and where a human can steer next.
+> This is how people steer autonomous ML runs today — ~100 manual interventions in a markdown file (Prime Intellect's auto-nanogpt, May 2026). Kun runs the loop, shows you the reasoning, lets you steer it — and any loop can plug in. W&B shows the runs; agent observability shows traces; Kun shows the autonomous research trajectory — it runs and steers the autoresearcher, and is the open standard those trajectories are logged in: why each experiment happened, what changed, what evidence came back, and where a human can steer next.
 
 ## Demo Path A: modded-nanogpt replay
 
 ### Purpose
 
-Credibility. This shows Kun matters for serious ML workflows.
+Credibility. This shows Kun matters for serious ML workflows — and that Kun can *drive* real-code autoresearch, not just observe it.
+
+**Prefer:** a recorded **Kun-driven (Mode-A + `agent-edit`)** session on nanogpt that edited *real training code* — *"Kun drove this itself."* **Fallback:** an external agent (Claude Code/Codex + a markdown harness, or a partial real run) whose **real artifacts** are converted into Kun's event format (Mode-B ingest). Either way credibility comes from a rich real trajectory (≥1 real improvement, ≥1 real failure/NaN, a clear best/forkable node).
+
+**Honesty guard:** narrate exactly what happened — Kun-driven (Mode A) vs ingested (Mode B), and recorded vs live. If it was a recorded Kun-driven run, say "Kun drove this itself, recorded overnight"; if ingested, say so. Never imply live execution that didn't occur, and don't claim the fork/branch executed live if it didn't.
 
 ### Setup
 
 Open a saved mission:
 
 ```text
-Mission: modded-nanogpt optimization replay
+Mission: modded-nanogpt optimization (recorded)
 Objective: reduce steps/time to target validation loss
-Mode: replay
+Adapter: modded_nanogpt   Patcher: agent-edit
+Source mode: A (Kun-driven, recorded)  [fallback: B (ingested/converted)]
+Load as: replay
 ```
 
 ### What to show
@@ -67,6 +79,18 @@ Learned constraints:
 - One optimizer tweak improved loss but hurt throughput.
 ```
 
+## Demo Beat 2: ingest an external loop
+
+### Purpose
+
+Prove Kun is an add-on/cockpit for *any* loop, not a closed tool — the wedge.
+
+### Narration
+
+> This isn't Kun's loop, and it isn't the nanogpt run. It's 15 lines of someone else's script — five of them are `kun_log` calls — emitting live right now. Watch its nodes appear in the cockpit. Kun is observing a loop it never ran. That's the bet: the open standard for autoresearch trajectories, and the cockpit on top.
+
+Show the emit helper / contract and the same artifacts re-framed to highlight the contract.
+
 ## Demo Path B: fork from serious replay
 
 ### Purpose
@@ -92,7 +116,7 @@ Expected UI result:
 - new branch appears
 - fork event appears in stream
 - human constraint appears in constraints/evidence panel
-- proposed next experiment appears or is queued
+- proposed next experiment is **queued** here only because this is a *recorded* nanogpt trajectory we don't re-run live (Beat 1). The fork mechanism itself **executes live** in Mode A — shown on the tiny CNN in Beat 4. (In Mode B, fork is advisory until the external loop reads Kun's state back via the feedback channel.)
 
 ## Demo Path C: live tiny CNN run
 
@@ -141,7 +165,7 @@ Click the newly created node:
 
 ### Purpose
 
-Prove fork is not just visual.
+Prove the cockpit has teeth: approval gate, mid-run instruct, and fork all execute live (Mode A).
 
 ### Action
 
@@ -163,7 +187,21 @@ Expected result:
 
 ### Narration
 
-> This is the same steering mechanism, but now executing live on the tiny model. The human is not micromanaging every run; they are shaping the research trajectory.
+> This is the full steering surface, executing live on the tiny model. I can stop a proposal at the **approval gate** and reject or edit it before it runs; I can **instruct** mid-run ("try cosine") to bias the next proposal; and I can **fork with a constraint** ("ban dropout > 0.4") — the constraint enters the research-memory panel and the next run is deterministically reshaped (bound-violating proposals hard-rejected). The human is not micromanaging every run; they are shaping the research trajectory.
+
+## Demo Beat 5: model benchmarking (P2, optional)
+
+### Purpose
+
+Show Kun can compare models *as autoresearchers*, not just compare runs. Drop first if time is tight.
+
+### Action
+
+Run the same mission (same goal, budget, adapter) under two models (e.g., Claude vs GPT) via the per-mission model picker (LiteLLM), then open the **cross-model compare view**.
+
+### Narration
+
+> Same mission, two different models driving the loop. Kun ranks them as researchers — hypothesis quality, sample-efficiency, time and cost to target. The question isn't "which model writes better code," it's "which model is the better autoresearcher." That's a view only a trajectory-level tool can give you.
 
 ## Closing line
 
@@ -209,7 +247,7 @@ Backup narration:
 
 ### Is this a W&B replacement?
 
-No. W&B is excellent for run tracking. Kun sits above run tracking: it records the autonomous research process that creates the runs. It can integrate with W&B later.
+No. W&B is excellent for run tracking. Kun sits above run tracking: it records the autonomous research process that creates the runs. Kun is an add-on, not a replacement — you can point Kun's own loop at your model (Mode A) *or* instrument whatever you already run (W&B included) in ~5 lines (Mode B) and get the trajectory cockpit on top. Future bet: it's the open standard the whole autoresearch ecosystem logs into.
 
 ### Is this just agent observability?
 
@@ -217,16 +255,16 @@ No. Agent observability tracks prompts, calls, tools, and traces. Kun tracks res
 
 ### Does the loop actually run experiments?
 
-Yes. The tiny CNN mission runs live. The modded-nanogpt mission is a recorded serious trajectory for reliability and credibility.
+Yes — and in two modes. **Mode A: Kun drives.** Kun's own loop is the autoresearcher (planner → patcher → runner → parser → evaluator → decider); the tiny CNN mission runs live this way. The LLM is the *driver*, not a narrator: given the base node + mission state + accumulated memory, it generates the hypothesis AND the actual change, then reads results and evaluates — genuine LLM-driven autoresearch (AIDE/Weco-style), not a pre-scripted sweep. Crucially, via the **`agent-edit` patcher** (Kun orchestrating Claude Code/Codex as a subprocess to edit real code), Kun can drive autoresearch on *any* model's real training code — e.g. nanogpt optimizer/attention changes — not just config knobs. **Mode B: Kun observes/steers** an external loop that emits via `kun_log`. The serious nanogpt run is preferably a **recorded Kun-driven (Mode-A `agent-edit`)** trajectory — "Kun drove this itself," recorded for reliability; an external-session-converted run (Mode B) is the fallback. A heuristic planner exists only as a validation fallback/baseline.
 
 ### Why not run modded-nanogpt live?
 
-The product can adapt to serious repos, but judging demos should not depend on expensive long-running GPU jobs. We show the serious trajectory from a recorded run and demonstrate the live loop on a fast model.
+Because an `agent-edit` → train → eval cycle on real code is minutes-long and nondeterministic, and judging demos shouldn't hinge on expensive GPU jobs. So we show real-code Mode A as a **recorded Kun-driven run** (Kun drove it overnight via `agent-edit`), and demonstrate the live loop with `config-patch` on a fast model. Same event path either way.
 
 ### What is the main technical contribution?
 
-The evented research trajectory: a replayable and forkable representation of autonomous ML experimentation.
+The open standard for autoresearch trajectories, plus the cockpit **and runtime** on top. The trajectory is an evented, replayable, forkable representation — but the contribution isn't a novel algorithm (forking/constraints/node-graphs aren't new). It's ecosystem position: a dead-simple engine-agnostic logging contract (`kun_log(...)`, ~5 lines) that any loop — Claude Code, Codex, a script, or Kun's own — emits into and gets the cockpit on top. Won the way LangSmith/OpenTelemetry won agent observability: by being the thing you both *instrument your existing loop with* (Mode B) **and** *run your research on* (Mode A). An add-on, not a replacement.
 
 ## One-minute version
 
-> Kun is mission control for autonomous ML experiments. You define a goal, such as improving validation accuracy or reducing time-to-target-loss. The agent proposes experiments, edits config/code, runs training/evals, parses metrics, and decides the next branch. Kun records every step as a research trajectory. You can inspect the hypothesis, diff, metrics, evidence, and verdict for every experiment, replay the session later, and fork from any prior node with a new constraint.
+> Kun is mission control for autonomous ML experiments. You define a goal, such as improving validation accuracy or reducing time-to-target-loss. The agent proposes experiments, edits config/code, runs training/evals, parses metrics, and decides the next branch. Kun records every step as a research trajectory. You can inspect the hypothesis, diff, metrics, evidence, and verdict for every experiment, replay the session later, approve/reject proposals, instruct mid-run, and **fork from any prior node with a constraint that reshapes the next run live** — and any external loop can plug into the same cockpit in ~5 lines.

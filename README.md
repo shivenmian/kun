@@ -40,17 +40,18 @@ Frontend: Vite React
 UI: Tailwind + shadcn/ui
 Graph: React Flow
 Charts: Recharts
-Diff viewer: Monaco diff viewer or react-diff-viewer
+Diff viewer: react-diff-viewer (not Monaco)
 Backend: FastAPI
 Event stream: Server-Sent Events first, WebSocket only if needed
-Storage: JSONL event log + SQLite
-Agent provider abstraction: LiteLLM Python SDK
+Storage: JSONL event log only (in-memory state builder; no SQLite for MVP)
+Agent provider: LiteLLM (provider-agnostic) + a minimal per-mission model picker (powers benchmarking; no elaborate settings UI)
 Live task: Fashion-MNIST tiny CNN
 Serious replay: modded-nanogpt recorded trajectory
 ```
 
 ## Documentation map
 
+- [`docs/00-spec.md`](docs/00-spec.md) - **canonical post-audit build spec. Read this first; it wins over docs 01–07 where they conflict.**
 - [`docs/01-product-design.md`](docs/01-product-design.md) - product thesis, scope, UX, features, non-goals.
 - [`docs/02-technical-architecture.md`](docs/02-technical-architecture.md) - system architecture and implementation shape.
 - [`docs/03-event-schema.md`](docs/03-event-schema.md) - JSONL event contract and examples.
@@ -58,3 +59,4 @@ Serious replay: modded-nanogpt recorded trajectory
 - [`docs/05-demo-plan.md`](docs/05-demo-plan.md) - final demo strategy and script.
 - [`docs/06-agent-workstreams.md`](docs/06-agent-workstreams.md) - parallel coding-agent tasks.
 - [`docs/07-modded-nanogpt-runbook.md`](docs/07-modded-nanogpt-runbook.md) - plan for the serious recorded run.
+- [`docs/08-agent-edit-design.md`](docs/08-agent-edit-design.md) - design note for the `agent-edit` patcher (Kun driving real code via a coding-agent subprocess). Read before P1.

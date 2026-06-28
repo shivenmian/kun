@@ -1,8 +1,10 @@
 # Kun Product Design
 
+> **Reconciled with [`00-spec.md`](00-spec.md) (canonical; wins on any conflict).** v4 deltas applied/relevant here: Kun supports **both Mode A (Kun drives the loop) and Mode B (Kun observes/steers an external loop)** — Mode A is the powerful one; LLM is the *driver* of the loop (not heuristic-first, not a narrator); **LiteLLM is back in** — it powers model benchmarking (a P2 demo beat) + provider-agnostic planning, exposed via a *minimal* per-mission model picker (no elaborate settings UI); the code patcher has two implementations — **`config-patch` (P0)** and **`agent-edit` (P1, orchestrates Claude Code/Codex to edit real model code so Kun can autoresearch any model, not just config knobs)**; **live fork execution, mid-run instruct, and a human approval gate are core (P1)** — not visual-first/stretch; SQLite cut (JSONL + in-memory only); learned-constraints/**research-memory panel** and **compare-two-experiments** are **core**; node statuses are `valid`/`buggy` and nodes are badged by `operator` (draft/debug/improve); the demo is now **five beats** (serious run on real code, independent external producer, live tiny CNN, live steering, model benchmarking [P2]) (see spec §8 / doc 05); the **wedge/moat** is the open engine-agnostic logging contract + ~5-line emit helper — Kun is an **add-on, not a replacement** for your loop; everything is tagged **P0/P1/P2**; diff viewer is react-diff-viewer (not Monaco).
+
 ## One-liner
 
-**Kun is a mission-control cockpit for running, observing, replaying, and steering autonomous ML experiment loops.**
+**Kun is a mission-control cockpit for running, observing, replaying, and steering autonomous ML experiment loops — and the open standard those trajectories are logged in. Any loop (Claude Code, Codex, a script, or Kun's own) plugs in via a ~5-line emit helper.**
 
 ## Product thesis
 
@@ -64,7 +66,7 @@ Kun should be organized around these nouns:
 
 ```text
 Mission
-  A user-defined research objective with constraints, commands, metrics, budget, editable files, and model/provider settings.
+  A user-defined research objective with constraints, commands, metrics, budget, and editable files. (The `model` is a LiteLLM model id, chosen via a *minimal* per-mission model picker — no elaborate settings UI.)
 
 Trajectory
   The full history of autonomous research work inside a mission.
@@ -90,6 +92,8 @@ Constraint
 
 ## Final hackathon scope
 
+Kun runs in **two modes**: **Mode A**, where Kun drives the loop itself (planner → patcher → runner → parser → evaluator → decider — steering has teeth because Kun owns execution), and **Mode B**, where Kun observes/steers an external loop that emits via `kun_log` (steering is advisory unless the external loop reads Kun's state back via the feedback channel). Mode A is the powerful one.
+
 ### Must-have: execution layer
 
 Kun should actually run autonomous loops, not merely visualize a log.
@@ -105,11 +109,16 @@ Required execution features:
    - editable files
    - metric parser
    - constraints
-   - provider/model config
+   - patcher: `config-patch` (P0) or `agent-edit` (P1)
+   - model (LiteLLM model id, via a minimal per-mission model picker)
+   - adapter (tiny_cnn | modded_nanogpt | custom)
 
 2. **Autonomous experiment loop**
-   - planner proposes next experiment
-   - patcher edits config/code
+
+   The LLM is the *driver*: given the base node + mission state + accumulated memory, it proposes the hypothesis AND the actual change (params/code) and evaluates the result. The heuristic planner is a schema-validation fallback and offline/no-key baseline only — not the primary path.
+
+   - LLM planner proposes next experiment (hypothesis + concrete change)
+   - patcher applies the change — **`config-patch`** (P0: writes changed keys into a config file) or **`agent-edit`** (P1: orchestrates a coding agent — Claude Code / Codex — to edit *real model code*, so Kun can autoresearch any model, not just config knobs)
    - runner launches training/eval
    - metrics parser reads metrics
    - evaluator judges result
@@ -152,7 +161,7 @@ Required cockpit features:
 
 4. **Code/config diff viewer**
    - exact changes made by the agent
-   - for MVP, config diffs are enough for tiny CNN
+   - config diffs cover the P0 tiny-CNN path; **`agent-edit` (P1) produces real code diffs** (`file_diff_created`), and commit-per-node (P1) yields real git diffs for free
 
 5. **Experiment detail panel**
    - hypothesis
@@ -175,35 +184,35 @@ Required cockpit features:
 
 ### Must-have: control layer
 
-Implement one strong intervention:
+The cockpit ships multiple real interventions (all give it teeth because in **Mode A** Kun owns execution):
 
-> **Fork from prior experiment with a human constraint.**
+- **Stop / pause** (P0).
+- **Fork-from-node with a human constraint (P1)** — in Mode A the fork **executes a real run** (live fork execution is core, not visual-only).
+- **Approval gate (P1)** — pause-on-proposal: approve / reject / edit a proposed experiment *before* it runs (emits `experiment_approved` / `experiment_rejected`).
+- **Mid-run `instruct` (P1)** — inject NL guidance (`instruction_added`) that biases the next proposal.
 
-Example:
+Example fork:
 
 ```text
 Fork from exp_009.
 Instruction: keep cosine scheduler, but avoid learning_rate > 0.003 because it caused NaNs.
 ```
 
-The fork should create a new branch, emit events, ask the planner for a new proposal, generate a patch/config, and optionally run it.
+The fork creates a new branch, emits events, asks the planner for a new proposal, generates a patch/config, and **executes the run in Mode A** (in Mode B it queues an instruction via the feedback channel).
 
 ## Nice-to-have features
 
 Only add after the must-have loop and cockpit work.
 
-- learned constraints / failed-ideas memory
 - lightweight eval/regression panel
-- human approval gate
 - multi-agent swimlanes
 - context compaction markers
-- model comparison
 - W&B import/export
 - richer artifact viewer
 - prompt/tool trace detail
 - desktop shell via Electron or Tauri
 
-The best nice-to-have is **learned constraints**, because it reinforces the research-native thesis.
+**Note (v2):** learned constraints are no longer a nice-to-have — the **research-memory panel** (mission-wide accumulated constraints) is now a *core* surface, and the closed loop (failure → learned constraint → reshapes the next proposal) is the hero demo beat. See spec §6/§7. Likewise the **human approval gate** is now core (P1), and **model benchmarking + cross-model compare** are in scope as the **P2** second demo story; **compare-two-experiments** is a core view (spec §6/§7/§8 Beat 5).
 
 Example:
 
@@ -233,7 +242,9 @@ Do not build:
 
 ## Demo strategy
 
-The final demo has three paths:
+**Superseded by spec §8 (canonical): the demo is now FIVE beats** — (1) serious run on **real code** (prefer a **recorded Kun-driven** Mode-A + `agent-edit` run; fallback is an external session → convert, with an honesty guard), (2) ingest a genuinely independent external loop (the wedge), (3) live Fashion-MNIST tiny CNN (Mode A, `config-patch`), (4) steer it live (approval gate / instruct / fork with constraint), (5) model benchmarking across models (P2, droppable). The paths below are retained as detail and map onto those beats; see doc 05.
+
+The original framing had three paths:
 
 ### Path A: serious recorded run
 
@@ -291,9 +302,9 @@ Show:
 - best metric
 - current experiment
 - budget used
-- mode: live / replay / paused
+- mode: A-live / B-observe / replay / paused
 - runtime
-- model/provider
+- model (the mission's LiteLLM model id)
 
 ### Center
 
@@ -311,11 +322,13 @@ Node statuses:
 - baseline
 - proposed
 - running
-- success
-- failed
+- valid
+- buggy
 - promoted
 - rejected
 - forked
+
+Nodes are also badged by **operator** (`draft` / `debug` / `improve`). Status vocabulary matches doc 03 (`valid` = ran & produced a metric; `buggy` = failed/NaN — the `debug` operator targets these).
 
 ### Right panel
 

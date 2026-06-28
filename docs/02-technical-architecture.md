@@ -1,5 +1,7 @@
 # Kun Technical Architecture
 
+> **Reconciled with [`00-spec.md`](00-spec.md) (canonical; wins on any conflict).** v4 deltas: **two first-class modes** — Mode A (Kun drives the loop) and Mode B (Kun observes/steers an external loop), converging on the same event log, with a Mode-B feedback channel (`GET /missions/{id}/state` exposes active constraints + pending fork/instruct for the external loop to read back); **LiteLLM is back IN** for provider-agnostic planning + a minimal per-mission model picker (powers model benchmarking) — only the *elaborate* settings UI (temperature / max-tokens / `test connection`) stays out; the **code patcher** is one interface with two implementations — `config-patch` (P0) and `agent-edit` (P1, orchestrates Claude Code/Codex as a subprocess to edit real model code and return the diff), mapped onto `ProjectAdapter.apply_changes`; **live fork execution** (Mode A), the **approval gate**, **mid-run instruct**, and **commit-per-node** are core (P1); new events `instruction_added` / `experiment_approved` / `experiment_rejected` (doc 03); new endpoints `POST /missions/{id}/ingest`, `POST /missions/{id}/approve`, `POST /missions/{id}/instruct`, and the feedback-channel use of `GET /missions/{id}/state`; `POST /settings/llm/test` is dropped. Retained: SQLite cut (JSONL + in-memory only), the LLM is the driver (heuristic planner is fallback/baseline only), engine-agnostic producers + the ~5-line `kun_log(...)` emit helper as a shipped first-class deliverable (the wedge), `operator` + `valid`/`buggy` + `schema_version` on the materialized model, ResearchMemoryPanel + CompareView (core), react-diff-viewer (not Monaco). Everything is tagged **P0/P1/P2**. The ProjectAdapter interface and fork flow below are still valid; the API surface is updated below.
+
 ## Architecture summary
 
 Kun should be built as a local web MVP first. A desktop shell can be added later.
@@ -27,7 +29,7 @@ Experiment Workspace
       |
       v
 Event Log / Flight Recorder
-  JSONL events + SQLite materialized state
+  JSONL events + in-memory materialized state (no SQLite for MVP)
 ```
 
 ## Recommended stack
@@ -38,12 +40,12 @@ Language: TypeScript
 UI: Tailwind + shadcn/ui
 Graph: React Flow
 Charts: Recharts
-Diff: Monaco diff viewer or react-diff-viewer
+Diff: react-diff-viewer (not Monaco)
 Backend: FastAPI
 Language: Python
 Event stream: Server-Sent Events first, WebSocket only if needed
-Storage: JSONL event log + SQLite
-Agent abstraction: LiteLLM Python SDK
+Storage: JSONL event log only (in-memory state builder; no SQLite for MVP)
+Agent abstraction: LiteLLM for provider-agnostic planning + a minimal per-mission model picker (powers benchmarking; no elaborate settings UI)
 Live ML task: Fashion-MNIST tiny CNN
 Serious replay: modded-nanogpt recorded trajectory
 ```
@@ -106,8 +108,14 @@ kun/
         ExperimentDetails.tsx
         MetricsChart.tsx
         DiffViewer.tsx
+        CompareView.tsx
+        CrossModelCompareView.tsx
+        ResearchMemoryPanel.tsx
+        Leaderboard.tsx
         EventStream.tsx
         ForkDialog.tsx
+        ApprovalGate.tsx
+        InstructBox.tsx
         TopBar.tsx
         Sidebar.tsx
       state/
@@ -190,7 +198,11 @@ while budget remains:
   emit events throughout
 ```
 
-For MVP, the planner/evaluator/decider can be simple and deterministic first. Add LiteLLM once the evented loop works.
+For MVP, the **LLM is the driver**: it proposes the hypothesis *and* the actual config/code change, and evaluates results. A deterministic heuristic planner exists only as a **fallback** (on schema-validation failure) and an **offline/no-key baseline** — it is not the primary path. Wire the evented loop and the LLM driver together; do not ship a deterministic-only loop.
+
+**Two first-class modes (spec §4).** This Planner→Patcher→Runner→Parser→Evaluator→Decider loop is **Mode A — Kun drives**: Kun owns execution, so steering has teeth (fork executes, constraints bind, the approval gate blocks the next run). In **Mode B — Kun observes/steers an external loop** (Claude Code / Codex / a script emitting via `kun_log`), Kun is the cockpit + memory and does not run this loop. Both modes converge on the same event log and render through the same UI; the mode is a property of who owns execution. Mode-B steering becomes real via the **feedback channel**: the external loop polls `GET /missions/{id}/state` (active constraints + pending fork/instruct) at the top of each iteration and obeys.
+
+**The patcher = one interface, two implementations (maps onto `ProjectAdapter.apply_changes`).** `config-patch` (P0) writes changed keys into a config file — fast, reliable, the tiny-CNN path and always-available fallback. `agent-edit` (P1) hands the proposed change to a **coding agent (Claude Code / Codex) run as a subprocess** to edit *real model code* and returns the resulting diff (emitted as `file_diff_created`); this is what lets Kun autoresearch any model, not just config knobs. The runner then executes the train/eval command on the patched per-experiment workspace.
 
 ## Project Adapter interface
 
@@ -284,28 +296,17 @@ Adapter goals:
 
 If there is time, implement a real adapter that can run a short mode. If not, implement a converter/importer.
 
-## LLM provider abstraction
+## LLM provider — LiteLLM is IN
 
-Use LiteLLM Python SDK to avoid provider lock-in.
-
-UI settings:
-
-- provider
-- model
-- API key
-- temperature
-- max tokens
-- test connection
-
-Backend env support:
+**In MVP:** LiteLLM backs provider-agnostic planning behind a single `propose(...)` boundary, plus a **minimal per-mission model picker** (the mission spec's `model` field is a LiteLLM model id; the topbar shows it). This is what unlocks **model benchmarking** — the same mission run under N models, compared as autoresearchers (spec §7 P2, §8 Beat 5). Read keys from env vars.
 
 ```text
-OPENAI_API_KEY
-ANTHROPIC_API_KEY
-GEMINI_API_KEY
+ANTHROPIC_API_KEY   # plus any other provider keys LiteLLM routes to
 ```
 
-For MVP, storing API keys in `.env` or local SQLite is acceptable. Do not overbuild desktop keychain support.
+Storing keys in `.env` is fine. No SQLite, no desktop keychain.
+
+**Out of scope (the elaborate settings UI only):** the full provider/model/API-key/temperature/max-tokens/`test connection` settings panel. The per-mission picker is a model dropdown, not a settings suite — keep it minimal. `POST /settings/llm/test` is dropped.
 
 ### Planner output schema
 
@@ -313,6 +314,7 @@ The planner should return strict JSON:
 
 ```json
 {
+  "operator": "improve",
   "hypothesis": "Lower learning rate with AdamW may improve validation stability.",
   "changes": {
     "learning_rate": 0.001,
@@ -347,10 +349,10 @@ Flow:
 4. Add human constraint to mission state.
 5. Ask planner for next proposal with branch context.
 6. Emit experiment_proposed.
-7. Optionally run immediately.
+7. In Mode A, execute the run immediately (or hold at the approval gate if enabled, emitting experiment_approved / experiment_rejected before running); in Mode B, expose it via GET /missions/{id}/state for the external loop to pick up.
 ```
 
-For modded-nanogpt replay, fork can create/queue a new branch without actually launching a huge run. For tiny CNN, fork should execute live if possible.
+**Live fork execution is core (P1).** In **Mode A**, fork **executes a real run** on the new branch (this is the steering-with-teeth beat). In **Mode B**, fork **queues an instruction** the external loop reads back via the feedback channel (`GET /missions/{id}/state`). For the heavy modded-nanogpt target, fork can create/queue a new branch without launching a full run; for tiny CNN (Mode A) it executes live.
 
 ## API endpoints
 
@@ -359,7 +361,6 @@ Initial API surface:
 ```text
 GET  /health
 GET  /settings
-POST /settings/llm/test
 
 GET  /missions
 POST /missions
@@ -367,10 +368,13 @@ GET  /missions/{mission_id}
 POST /missions/{mission_id}/start
 POST /missions/{mission_id}/stop
 POST /missions/{mission_id}/fork
+POST /missions/{mission_id}/approve     # approval gate: approve/reject/edit a pending proposal (P1)
+POST /missions/{mission_id}/instruct    # mid-run NL instruct -> instruction_added (P1)
+POST /missions/{mission_id}/ingest      # external producer path: POST a kun_log dict (server fills the envelope)
 GET  /missions/{mission_id}/events
 GET  /missions/{mission_id}/stream
 GET  /missions/{mission_id}/experiments
-GET  /missions/{mission_id}/state
+GET  /missions/{mission_id}/state       # Mode-B feedback channel: active constraints + pending fork/instruct (P1)
 
 POST /replays/load
 GET  /replays
@@ -403,15 +407,21 @@ type MissionState = {
 
 Views:
 
-- MissionLauncher
+- MissionLauncher (includes the minimal per-mission model picker — LiteLLM model id)
 - Sidebar
-- TopBar
-- TrajectoryGraph
+- TopBar (status: mission name, best metric, current experiment, budget used, mode [A-live / B-observe / replay / paused], runtime, model)
+- TrajectoryGraph (nodes badged by operator, colored by valid/buggy status)
 - ExperimentDetails
 - MetricsChart
 - DiffViewer
+- CompareView (core — diff two nodes' configs + overlay their metric curves)
+- ResearchMemoryPanel (core — mission-wide accumulated constraints/learnings)
+- CrossModelCompareView (P2 — same mission under N models; ranks models as autoresearchers; spec §8 Beat 5)
+- Leaderboard (results table sorted by metric)
 - EventStream
 - ForkDialog
+- ApprovalGate (approve / reject / edit a pending proposal; P1)
+- InstructBox (mid-run NL instruct -> instruction_added; P1)
 
 ## Reliability principles
 
@@ -419,7 +429,7 @@ Views:
 - Make replay mode work even if live loop breaks.
 - Make the modded-nanogpt replay impressive even if the real run is partial.
 - Keep event log source-of-truth clean.
-- Use deterministic fallback planner before LiteLLM.
+- Heuristic planner is a fallback/baseline only (used on LLM schema-validation failure or no-key mode); the LLM drives the happy path.
 - Never block core UI on desktop packaging.
 
 ## Packaging
