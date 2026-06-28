@@ -18,6 +18,7 @@ import { ObserveModal } from "./components/ObserveModal";
 import { ReplayGallery } from "./components/ReplayGallery";
 import { EmptyState } from "./components/EmptyState";
 import { ControlDeck } from "./components/ControlDeck";
+import { ApprovalToggle } from "./components/ApprovalToggle";
 import { Toaster } from "./components/Toaster";
 import { useMissionRuntime } from "./state/useMissionRuntime";
 import { useAlerts } from "./state/useAlerts";
@@ -187,6 +188,19 @@ export default function App() {
               modeLabel={modeLabel}
               runState={isLiveModeA ? runtime?.run_state : undefined}
               attention={attentionCount}
+              controls={
+                isLiveModeA ? (
+                  <ApprovalToggle
+                    compact
+                    missionId={missionId}
+                    approvalRequired={runtime?.approval_required}
+                    disabled={
+                      runtime?.run_state === "stopped" || runtime?.run_state === "finished"
+                    }
+                    onChanged={refreshRuntime}
+                  />
+                ) : undefined
+              }
             />
 
             <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">

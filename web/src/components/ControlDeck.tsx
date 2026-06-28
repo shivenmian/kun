@@ -8,7 +8,6 @@ import { Card, CardHeader, CardTitle, Button } from "./ui/primitives";
 import { StopPauseControls } from "./StopPauseControls";
 import { InstructBox } from "./InstructBox";
 import { ApprovalGate } from "./ApprovalGate";
-import { ApprovalToggle } from "./ApprovalToggle";
 import { runStateColor, runStateLabel } from "../lib/status";
 import type { MissionRuntimeState, PendingApproval } from "../lib/api";
 
@@ -64,12 +63,7 @@ export function ControlDeck({
           </Button>
         </div>
 
-        <ApprovalToggle
-          missionId={missionId}
-          approvalRequired={runtime?.approval_required}
-          disabled={isDone}
-          onChanged={onChanged}
-        />
+        {/* (the arm/disarm toggle now lives in the topbar instrument strip) */}
 
         {/* the gate appears IN the deck when armed + a proposal is pending */}
         {pendingApproval && (

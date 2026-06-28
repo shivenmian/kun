@@ -11,6 +11,7 @@ export function ApprovalToggle({
   approvalRequired,
   disabled,
   onChanged,
+  compact = false,
 }: {
   missionId?: string;
   approvalRequired?: boolean;
@@ -18,6 +19,8 @@ export function ApprovalToggle({
   disabled?: boolean;
   /** Bump the /state poll so the armed/disarmed flag shows immediately. */
   onChanged?: () => void;
+  /** Slim inline variant for the topbar instrument strip (vs the deck card). */
+  compact?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -40,6 +43,44 @@ export function ApprovalToggle({
       setBusy(false);
     }
   };
+
+  const Switch = (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      disabled={!missionId || disabled || busy}
+      onClick={toggle}
+      title={on ? "Disarm approval gate" : "Arm approval gate"}
+      className={
+        "relative h-5 w-9 flex-none rounded-full transition-colors disabled:opacity-40 " +
+        (on ? "bg-amber-500" : "bg-neutral-700")
+      }
+    >
+      <span
+        className={
+          "absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all " +
+          (on ? "left-[1.125rem]" : "left-0.5")
+        }
+      />
+    </button>
+  );
+
+  if (compact) {
+    // Topbar instrument: tiny label + switch, matching the Stat strip.
+    return (
+      <div className="flex flex-col" title={on ? "Proposals wait for you" : "Loop runs autonomously"}>
+        <span className="text-[9px] uppercase tracking-wide text-neutral-500">Approval gate</span>
+        <div className="flex items-center gap-1.5">
+          {Switch}
+          <span className={"text-xs font-semibold " + (on ? "text-amber-400" : "text-neutral-500")}>
+            {on ? "armed" : "off"}
+          </span>
+          {err && <span className="text-[10px] text-red-400">{err}</span>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-between gap-2 rounded-md border border-neutral-800 bg-neutral-950/60 px-2.5 py-2">

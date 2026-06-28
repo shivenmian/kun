@@ -78,6 +78,7 @@ export function TopbarStatus({
   modeLabel,
   runState,
   attention = 0,
+  controls,
 }: {
   state: MissionState;
   selected?: Experiment;
@@ -86,6 +87,8 @@ export function TopbarStatus({
   runState?: "run" | "paused" | "stopped" | "finished";
   /** Count of items needing a human now (e.g. a pending approval) → bell badge. */
   attention?: number;
+  /** Inline instrument-strip controls (e.g. the approval-gate toggle), live Mode-A only. */
+  controls?: React.ReactNode;
 }) {
   const m = state.mission;
   const best = state.bestMetric;
@@ -127,6 +130,13 @@ export function TopbarStatus({
             {runStateLabel(runState)}
           </span>
         </div>
+      )}
+
+      {controls && (
+        <>
+          <div className="ml-1 h-8 w-px bg-neutral-800" />
+          {controls}
+        </>
       )}
 
       <div className="ml-1 h-8 w-px bg-neutral-800" />
