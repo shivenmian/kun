@@ -75,10 +75,17 @@ Schema impact: would extend the `bound` shape — coordinate via the lead (CONTR
 
 ## Build order & recommendation
 
-**1 + 3 first** (both deterministic; together they make a *live* run match the sample's richness and
-feel like it learns), **then 2** (the narrative jump), **gate 4**, defer 5 to P2. Slot into the P1
-sequence right after `compare` (pure-craft, low-risk) and before/parallel with the heavier
-`agent-edit` work.
+**Recommended first slice: the deterministic *underfitting* rule (#1) + memory hygiene (#3).**
+Concretely: add the underfitting→`dropout` bound generator first (it's the one missing piece that
+makes a live run produce the sample's `learned_002`), then the merge + confidence-growth pass so the
+panel visibly sharpens. Both are deterministic, fully unit-testable, and contained to
+`backend/app/loop/constraints.py` + `run_mission.py` — low risk, and together they make a *live* run
+match the sample's richness and feel like it learns. Defer the broader #1 rules (e.g.
+repeated-regression) and #2 to the next slice.
+
+Then: **#2** (positive Σ-summary lessons — the narrative jump), **gate #4** (LLM memory-writer; build
+only after #1+#3 are solid), defer **#5** to P2. Slot the whole effort into the P1 sequence right
+after `compare` (pure-craft, low-risk) and before/parallel with the heavier `agent-edit` work.
 
 ## Invariants to preserve (do not break)
 
