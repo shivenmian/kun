@@ -52,8 +52,9 @@
 ## 2. P0 event types (the only ones P0 must produce/consume)
 
 Build for these. The v4 steering events (`instruction_added`, `experiment_approved`,
-`experiment_rejected`) and the Mode-B feedback channel are **P1 — out of P0 scope**, but
-keep the state builder tolerant of unknown types (ignore, don't crash).
+`experiment_rejected`) and the Mode-B feedback channel are **P1** (now LIVE — see §9 for the
+payloads/loop interface and doc 03 §"Human steering events (v4)"). Always keep the state
+builder tolerant of unknown types (ignore, don't crash).
 
 | type | key payload fields (see doc 03 for full examples) |
 |---|---|
@@ -155,11 +156,25 @@ Base: FastAPI. **Pin these names.** (P1 endpoints listed only so you don't grab 
 | `GET`  | `/missions/{id}/experiments` | Materialized state (experiments + metrics) for initial hydrate. | P0 |
 | `POST` | `/missions/{id}/fork` | Record a fork: emit `fork_created` + `branch_created` (+ `constraint_added` if a constraint was given). **P0 = record/visualize only; executing the forked run is P1.** | P0 |
 | `POST` | `/missions/{id}/ingest` | Optional Mode-B intake: accept a raw event dict, fill envelope, append. (Alternatively, external producers append to `runs/<id>/events.jsonl` and the backend tails it for SSE — pick one and document it.) | P0* |
-| `GET`  | `/missions/{id}/state` | Feedback channel (active constraints + pending fork/instruct). | **P1 — do not build** |
+| `GET`  | `/missions/{id}/state` | Feedback channel (active constraints + pending approval/instruct/fork + run-state). See §9.1. | **P1 — built** |
 
 \* The wedge-proof DoD (external producer renders live) needs ONE working live-ingest path:
 either `POST /ingest` or file-tail of `runs/<id>/events.jsonl`. Decide in Phase 0 and make
 `external_loop_demo.py` exercise it.
+
+### 5.1 P1 HTTP additions (frozen — added by the P1 lead; see §9 for the loop interface)
+
+All are **additive**; no P0 path is renamed. Steering events are appended via the events
+module (`kun_log`), exactly like P0 endpoints. **W1/API owns these handlers.**
+
+| Method | Path | Body | Emits / does | Returns |
+|---|---|---|---|---|
+| `POST` | `/missions/{id}/instruct` | `{text, applies_from?, bound?}` | `instruction_added` (human actor; `bound` ⇒ can hard-reject like a constraint) | `{instruction_id}` |
+| `POST` | `/missions/{id}/experiments/{exp_id}/approve` | `{edited?:bool, changes?:{}, note?}` | `experiment_approved` (human actor) | `{ok:true}` |
+| `POST` | `/missions/{id}/experiments/{exp_id}/reject` | `{reason, replacement_changes?:{}}` | `experiment_rejected` (human actor) | `{ok:true}` |
+| `POST` | `/missions/{id}/stop` | `{action:"stop"\|"pause"\|"resume", approval_required?:bool, reason?}` | **loop-control endpoint** — writes `runs/<id>/control.json` (§9.2). `stop` ⇒ the loop emits `mission_finished{reason:"user_stop"}`; if no loop is running, the API emits it directly. Optional `approval_required` toggles the approval gate mid-run. | `{action, run_state}` |
+| `GET`  | `/missions/{id}/state` | — | Mode-B feedback channel + UI hydrate. Pure read over the event log + control file (§9.1). | state object (§9.1) |
+| `POST` | `/missions/{id}/fork` | (P0 body) | **P1 extends:** in Mode A also enqueues an executable fork (§9.3). Still emits `fork_created`+`branch_created`(+`constraint_added`). | `{branch_id}` |
 
 ---
 
@@ -228,3 +243,76 @@ normal `/stream` SSE. This is **additive** — it renames none of the frozen §5
 auto-creates the parent dir. External producers omit it (still the ~5-line surface);
 the backend/loop pass `path=runs/<id>/events.jsonl`. **`kun_log` remains the single emit
 helper everything uses** (non-negotiable). Do not append to JSONL by any other means.
+
+---
+
+## 9. P1 lead decisions (authoritative; added by the P1 orchestrator)
+
+These freeze the steering cross-component interface so the **API (W1)** and **LOOP (W3)**
+subagents build against the same shapes without touching each other's paths. Invariant held:
+**the loop emits ONLY via `kun_log` and NEVER imports the API**; the loop's *inputs* are (a)
+steering **events** it reads back from its own log, and (b) the **control file** below.
+
+### 9.1 `GET /missions/{id}/state` — the feedback / hydrate object
+
+Pure read, derived from the event log (`build_state`) + the control file. Shape (frozen):
+
+```json
+{
+  "mission_id": "mission_abc",
+  "run_state": "run | paused | stopped | finished",
+  "approval_required": false,
+  "active_constraints": [ <canonical constraint object §3, bound present> ],
+  "soft_lessons":       [ <canonical constraint object §3, NO bound — bias-only> ],
+  "pending_approval":   { "experiment_id": "exp_007", "changes": {}, "operator": "improve" } ,
+  "pending_instructions": [ { "instruction_id": "instr_001", "text": "...", "applies_from": "exp_006", "bound": {} } ],
+  "pending_forks":      [ { "branch_id": "branch_x", "parent_experiment_id": "exp_004", "instruction": "...", "constraint": {} } ],
+  "best": { "experiment_id": "exp_004", "metric": {"name":"val_accuracy","value":0.902} }
+}
+```
+- `pending_approval` is non-null only when the loop has emitted `experiment_proposed` for a
+  node that has no matching `experiment_approved`/`experiment_rejected` yet **and**
+  `approval_required` is on. "pending" = emitted-but-not-yet-consumed (no later event resolves it).
+- Mode-B external loops poll this at the top of each iteration and obey (advisory-but-honored).
+
+### 9.2 Control file `runs/<id>/control.json` — imperative loop state (NOT an event)
+
+The ONE channel for stop/pause/resume + the approval-gate toggle. The **API writes it**
+(atomic write: temp + `os.replace`); the **loop reads it** at safe points. It is loop *input*,
+so it does not violate "emit only via `kun_log`". Shape:
+
+```json
+{ "run_state": "run | pause | stop", "approval_required": false, "updated_at": "<iso>" }
+```
+Loop contract (W3 implements; default = `{run_state:"run", approval_required:false}` when the
+file is absent, so **P0 missions are unchanged**):
+- Re-read the file at the **top of every iteration** and while waiting at the approval gate.
+- `stop` → break the loop and emit `mission_finished{reason:"user_stop"}` (existing event).
+- `pause` → block (poll ~0.25s) at the top of the iteration until `run_state` becomes `run`
+  (resume) or `stop`. Reflected as `run_state:"paused"` in §9.1.
+- `approval_required:true` → after emitting `experiment_proposed`, the loop waits (poll the log
+  + control file) for an `experiment_approved`/`experiment_rejected` for that `experiment_id`
+  before patching/running (see §9.3). `stop`/`pause` are still honored while waiting.
+
+### 9.3 Approval gate, instruct & fork-execute (loop ↔ event semantics)
+
+- **Approval gate.** With `approval_required`, the loop holds the just-`proposed` node until it
+  reads (from its own log) one of: `experiment_approved{edited:false}` → run as proposed;
+  `experiment_approved{edited:true, ...}` with `changes` (or `payload.changes`) → run the human's
+  edited `changes`; `experiment_rejected{replacement_changes:{}}` → run the replacement (a human
+  `improve`); `experiment_rejected` with no replacement → mark the node `rejected`
+  (`decision_created{decision:"reject"}`) and move to the next proposal.
+- **Mid-run instruct.** `instruction_added` enters mission state; the planner injects its `text`
+  into the prompt for proposals with `experiment_id >= applies_from` (soft bias), and if the
+  payload carries a structured `bound`, it ALSO hard-rejects like a constraint (§3 / doc 03).
+- **Fork-execute (Mode A).** P0 `POST /fork` is record-only. In Mode A the loop, between
+  iterations, scans for a `fork_created` (branch) with no experiments yet and runs the next
+  proposal on that `branch_id`/`parent_experiment_id`, applying any forked `constraint` as an
+  active bound. Recorded as normal events on the new branch.
+
+### 9.4 Constraint-generator additions are deterministic & rule-derived (doc 11)
+
+New learned-constraint generators (e.g. underfitting→`dropout` bound) and memory hygiene
+(merge + confidence growth) live in `backend/app/loop/constraints.py`, are pure + unit-tested,
+and emit `constraint_learned` (hard tier = with `bound`; soft lesson = no `bound`). **No new
+event types.** LLM-authored memory stays soft-tier (no `bound`) only.

@@ -432,9 +432,18 @@ Additional metrics:
 }
 ```
 
-### Human steering events (v4)
+### Human steering events (v4) — P1, live
 
-Emitted by the cockpit when a human steers a live (Mode A) mission. In Mode B, the external loop reads these back via `GET /missions/{id}/state` (the feedback channel) and obeys.
+**Status: built in P1.** Emitted by the cockpit (via the §5.1 endpoints `POST .../instruct`,
+`.../experiments/{id}/approve`, `.../experiments/{id}/reject`) when a human steers a live
+(Mode A) mission; the API appends them through `kun_log` like any event. The Mode-A loop reads
+them back from its own log; in Mode B, the external loop reads them via `GET /missions/{id}/state`
+(the feedback channel) and obeys. See CONTRACT §9 for the full loop interface.
+
+**Stop / pause is NOT an event** — it is imperative loop state set via `POST /missions/{id}/stop`
+through the control file `runs/<id>/control.json` (CONTRACT §9.2). A `stop` ultimately surfaces as
+`mission_finished{reason:"user_stop"}` (the existing event below); `pause`/`resume` flip run-state
+without emitting an event.
 
 ```json
 {"type": "instruction_added", "mission_id": "mission_fashion_001", "branch_id": "branch_main",
