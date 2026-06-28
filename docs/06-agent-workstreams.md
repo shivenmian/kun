@@ -277,6 +277,38 @@ Make the hackathon presentation reliable and impressive.
 
 > Gates (spec §9): UI before the trainer. Do NOT start P1 until the P0 spine demos end-to-end; do NOT start P2 until P1's hero steering works.
 
+## Execution & integration (worktrees, ownership, merge order)
+
+For a heavy parallel build, run each coding agent in its own **git worktree + branch off `main`** — isolation prevents collisions on shared files (e.g. the event schema) — and integrate to `main` **one branch at a time**. (Your own manual commits still go straight to `main` per this repo's convention; worktrees are just for parallel build agents.)
+
+**Ownership boundaries** (map the workstreams above onto the real repo layout — `backend/` · `web/` · `kun/` · `examples/` · `scripts/`):
+
+- **A** (backend / event log / contract): `backend/app/**`, `kun/log.py`
+- **B** (tiny-CNN + patcher): `examples/tiny_cnn/**`, `backend/app/loop/patcher.py`, the runner
+- **C** (planner / evaluator / decider): `backend/app/loop/{planner,evaluator,decider,llm_client,schemas}.py`
+- **D** (cockpit UI): `web/**`
+- **E** (replays / import): `examples/replays/**`, `scripts/{gen_sample_events,convert_nanogpt}.py`
+- **F** (demo polish): demo scripts, README, styling — after D merges
+
+**Collision rules:**
+
+- Each agent lists the files it will touch before editing; don't edit another agent's files without coordination.
+- Keep shared contracts stable: the event schema (doc 03), API endpoint names (doc 02), and sample-event file paths. Changing one is a coordinated, **schema-doc-first** change.
+- Prefer additive changes over refactors while branches are open; no repo-wide auto-formatters from a feature branch; commit frequently; run that area's checks before merging.
+
+**Integration order** (mirrors the P0 → P1 → P2 build order):
+
+1. event schema + open contract + emit helper + hand-authored sample `events.jsonl` (E + A)
+2. cockpit UI against the static replay (D)
+3. backend live event stream / SSE (A)
+4. tiny-CNN loop + `config-patch` (B + C)
+5. live SSE wiring + fork / approval gate / instruct (A + D)
+6. `agent-edit` patcher (B), Mode-B feedback channel (A), commit-per-node
+7. nanogpt convert/record → serious replay (E)
+8. benchmarking + cross-model compare (C + D), then polish (F)
+
+Rationale: the UI works against the static replay first; the backend then replaces static data with live events; the loop emits real events; heavy/credibility work and benchmarking come last. Don't merge multiple large branches blindly — one at a time, with that area's checks green.
+
 ## Agent prompt templates
 
 ### Backend agent prompt
