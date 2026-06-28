@@ -28,12 +28,15 @@ from .schemas import Constraint, Proposal
 class NodeView:
     id: str
     operator: str
-    status: str  # "success" | "failed"
+    status: str  # "success" | "failed" | "rejected"
     config: Dict[str, Any]  # full cumulative config used
     changes: Dict[str, Any]
     final_metrics: Dict[str, Any] = field(default_factory=dict)
     failure_type: Optional[str] = None
     parent_id: Optional[str] = None
+    # Branch this node lives on. Defaults to main so P0 (single-branch) is
+    # unchanged; fork-executed nodes carry their fork branch_id.
+    branch_id: str = "branch_main"
 
 
 @dataclass
@@ -46,6 +49,16 @@ class PlanContext:
     # SOFT lessons (no bound) — positive Σ-summaries that BIAS the next proposal
     # without ever hard-rejecting. Injected into the prompt alongside the bans.
     soft_lessons: List[Constraint] = field(default_factory=list)
+    # Mid-run human instructions (free text) that bias the next proposal (§9.3).
+    # Empty => prompt is byte-for-byte the P0 prompt (no instruction block added).
+    instructions: List[str] = field(default_factory=list)
+    # Branch being proposed for. The "already-tried" set is scoped to this branch
+    # so a fork can re-explore moves already tried on main. Default = main, so a
+    # single-branch P0 mission sees every node and behaves identically.
+    branch_id: str = "branch_main"
+    # Forced parent (fork execution): propose off THIS node instead of the best
+    # valid / last node. ``None`` => normal selection (P0 unchanged).
+    force_parent_id: Optional[str] = None
 
 
 @dataclass
@@ -78,12 +91,21 @@ def _best_valid(nodes: List[NodeView], metric: str, direction: str) -> Optional[
 
 # --- heuristic ----------------------------------------------------------------
 
+def _forced_parent(ctx: PlanContext) -> Optional[NodeView]:
+    """The node the loop pinned as parent (fork execution), if present."""
+    if not ctx.force_parent_id:
+        return None
+    return next((n for n in ctx.nodes if n.id == ctx.force_parent_id), None)
+
+
 def _heuristic_propose(ctx: PlanContext) -> ProposalResult:
     metric = ctx.objective.get("metric", "val_accuracy")
     direction = ctx.objective.get("direction", "maximize")
 
-    # 1) Draft seed if nothing has run yet.
-    if not ctx.nodes:
+    forced = _forced_parent(ctx)
+
+    # 1) Draft seed if nothing has run yet (never on a fork — it has a parent).
+    if not ctx.nodes and forced is None:
         changes = {
             "learning_rate": ctx.baseline_config.get("learning_rate", 0.01),
             "optimizer": ctx.baseline_config.get("optimizer", "adam"),
@@ -104,16 +126,18 @@ def _heuristic_propose(ctx: PlanContext) -> ProposalResult:
         )
 
     best = _best_valid(ctx.nodes, metric, direction)
-    last = ctx.nodes[-1]
-    parent = best or last
+    last = ctx.nodes[-1] if ctx.nodes else None
+    parent = forced or best or last
     parent_config = parent.config
 
     rejected: List[Dict[str, Any]] = []
 
     # 2) Back off after a NaN failure -> stay under the learned bound. This is
     #    where the hard-reject is demonstrated: try a still-too-high LR first
-    #    (rejected by the bound), then a compliant one.
-    if last.status == "failed" and last.failure_type == "nan_detected":
+    #    (rejected by the bound), then a compliant one. Skipped on a fork (which
+    #    branches off a pinned parent, not the last main-branch failure).
+    if forced is None and last is not None \
+            and last.status == "failed" and last.failure_type == "nan_detected":
         failed_lr = float(last.config.get("learning_rate", 0.02))
         candidates = [round(failed_lr * 0.75, 4), round(failed_lr * 0.2, 4)]
         lr_constraints = [
@@ -153,7 +177,12 @@ def _heuristic_propose(ctx: PlanContext) -> ProposalResult:
 
     # 3) Greedy improve: first playbook move that changes something, is allowed,
     #    not already applied at the parent, and respects all active constraints.
-    tried = {(k, json.dumps(v)) for n in ctx.nodes for k, v in n.changes.items()}
+    tried = {
+        (k, json.dumps(v))
+        for n in ctx.nodes
+        if n.branch_id == ctx.branch_id
+        for k, v in n.changes.items()
+    }
     for param, value, hypo in IMPROVE_PLAYBOOK:
         if param not in ctx.allowed_changes:
             continue
@@ -224,6 +253,14 @@ def _llm_user_prompt(ctx: PlanContext, best: Optional[NodeView], note: str = "")
             f"  {n.id} [{n.operator}] {n.status} changes={n.changes} "
             f"{ctx.objective.get('metric')}={m} fail={n.failure_type}"
         )
+    # Mid-run human steering (soft bias). Only injected when present, so a mission
+    # with no instructions produces the exact P0 prompt (byte-for-byte).
+    instr_block = ""
+    if ctx.instructions:
+        joined = "\n".join(f"- {t}" for t in ctx.instructions)
+        instr_block = (
+            "HUMAN INSTRUCTIONS (steer toward these; soft bias):\n" f"{joined}\n"
+        )
     return (
         f"Objective: {json.dumps(ctx.objective)}\n"
         f"Allowed changes: {ctx.allowed_changes}\n"
@@ -235,6 +272,7 @@ def _llm_user_prompt(ctx: PlanContext, best: Optional[NodeView], note: str = "")
         f"{constraints_prompt_block(ctx.constraints)}\n"
         f"PRIOR WINS (soft lessons — bias only, you may build on these):\n"
         f"{soft_lessons_prompt_block(ctx.soft_lessons)}\n"
+        f"{instr_block}"
         f"{note}\n"
         "Propose the next experiment as JSON."
     )
@@ -252,7 +290,8 @@ def propose(ctx: PlanContext, llm=None) -> ProposalResult:
     constraint hard-reject is applied to BOTH paths."""
     metric = ctx.objective.get("metric", "val_accuracy")
     direction = ctx.objective.get("direction", "maximize")
-    best = _best_valid(ctx.nodes, metric, direction)
+    # On a fork the parent is pinned; otherwise propose off the best valid node.
+    best = _forced_parent(ctx) or _best_valid(ctx.nodes, metric, direction)
 
     if llm is not None and llm.available():
         note = ""
