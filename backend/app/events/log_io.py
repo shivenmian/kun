@@ -44,8 +44,12 @@ def events_path(mission_id: str) -> Path:
 def register_mission(mission_id: str, path: Optional[str] = None) -> Path:
     """Record an externally-produced mission so /stream + state can serve it.
 
-    Defaults events_path to runs/<mission_id>/events.jsonl (CONTRACT §8.2). The parent
-    dir is created so a tailer can start before the producer writes its first line.
+    Defaults events_path to runs/<mission_id>/events.jsonl (CONTRACT §8.2). A given
+    `path` that is NOT absolute is resolved against the repo root (REPO_ROOT), so callers
+    can register bundled replays by repo-relative path (e.g.
+    examples/replays/nanogpt.events.jsonl) regardless of the backend's CWD; absolute paths
+    are used as-is. The parent dir is created so a tailer can start before the producer
+    writes its first line.
     """
     if path:
         resolved = Path(path)
