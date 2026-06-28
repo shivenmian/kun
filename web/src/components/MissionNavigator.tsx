@@ -85,7 +85,7 @@ export const MissionNavigator = forwardRef<
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-10 flex-none flex-col items-center gap-2 border-r border-neutral-900 bg-neutral-950 py-2">
+      <div className="flex h-full w-full flex-col items-center gap-2 border-r border-neutral-900 bg-neutral-950 py-2">
         <button
           onClick={onToggleCollapse}
           title="Expand missions"
@@ -109,7 +109,7 @@ export const MissionNavigator = forwardRef<
   }
 
   return (
-    <div className="flex h-full w-72 flex-none flex-col border-r border-neutral-900 bg-neutral-950">
+    <div className="flex h-full w-full flex-col border-r border-neutral-900 bg-neutral-950">
       <div className="flex items-center justify-between border-b border-neutral-900 px-3 py-2.5">
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] uppercase tracking-wide text-sky-500">Kun</span>

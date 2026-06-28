@@ -23,7 +23,15 @@ import { Toaster } from "./components/Toaster";
 import { useMissionRuntime } from "./state/useMissionRuntime";
 import { useAlerts } from "./state/useAlerts";
 import type { PendingApproval } from "./lib/api";
-import { Card, CardHeader, CardTitle, Button } from "./components/ui/primitives";
+import { Button } from "./components/ui/primitives";
+import {
+  ResizeHandle,
+  PanelShell,
+  PanelCollapseButton,
+  CollapsedStub,
+  usePanelCollapse,
+} from "./components/ui/panels";
+import { Panel, PanelGroup, type ImperativePanelHandle } from "react-resizable-panels";
 import { cn } from "./lib/utils";
 
 type Tab = "details" | "diff" | "metrics" | "compare" | "leaderboard";
@@ -45,6 +53,24 @@ export default function App() {
   const [observeOpen, setObserveOpen] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const navRef = useRef<MissionNavigatorHandle>(null);
+
+  // Resizable-panel collapse plumbing. The left rail's collapse is driven by its
+  // Panel (single source of truth); navCollapsed just mirrors it so the navigator
+  // renders its mini state + reopen affordance. Each workspace panel tracks its
+  // own collapsed flag off its restored size (survives reload via autoSaveId).
+  const railRef = useRef<ImperativePanelHandle>(null);
+  const toggleRail = () => {
+    const p = railRef.current;
+    if (!p) return;
+    if (p.isCollapsed()) p.expand();
+    else p.collapse();
+  };
+  const graph = usePanelCollapse(3);
+  const node = usePanelCollapse(3);
+  const right = usePanelCollapse(3);
+  const ctrl = usePanelCollapse(5);
+  const memory = usePanelCollapse(5);
+  const stream = usePanelCollapse(5);
 
   // Load a mission IN PLACE — the shell stays mounted; the data-source effect
   // below re-subscribes the single reducer to the new source.
@@ -164,168 +190,329 @@ export default function App() {
   }, [launched, state.mode]);
 
   return (
-    <div className="flex h-screen bg-neutral-950 text-neutral-200">
-      <MissionNavigator
-        ref={navRef}
-        activeMissionId={launched ? missionId : undefined}
-        collapsed={navCollapsed}
-        onToggleCollapse={() => setNavCollapsed((c) => !c)}
-        onSelect={(c) => {
-          selectMission(c);
-          navRef.current?.refresh();
-        }}
-        onNew={() => setNewOpen(true)}
-        onObserve={() => setObserveOpen(true)}
-        onReplay={() => setReplayOpen(true)}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        {launched ? (
-          <>
-            <TopbarStatus
-              state={state}
-              selected={selected}
-              modeLabel={modeLabel}
-              runState={isLiveModeA ? runtime?.run_state : undefined}
-              attention={attentionCount}
-              controls={
-                isLiveModeA ? (
-                  <ApprovalToggle
-                    compact
-                    missionId={missionId}
-                    approvalRequired={runtime?.approval_required}
-                    disabled={
-                      runtime?.run_state === "stopped" || runtime?.run_state === "finished"
-                    }
-                    onChanged={refreshRuntime}
-                  />
-                ) : undefined
-              }
-            />
-
-            <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">
-              <Button size="sm" variant="ghost" onClick={goHome}>
-                ⌂ Home
-              </Button>
-              <span className="text-neutral-600">|</span>
-              <span className="text-neutral-500">
-                {launched.kind} {missionId ? `· ${missionId}` : ""} {conn && `· ${conn}`}
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                {/* Live steering (incl. Fork) is grouped in the right-rail Control Deck.
-                    For replay/observe, keep the record-only Fork affordance here. */}
-                {!isLiveModeA && (
-                  <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
-                    ⑂ Fork from {selected?.id ?? "node"}
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {/* main 3-column workspace */}
-            <div className="grid min-h-0 flex-1 grid-cols-12 gap-2 p-2">
-              {/* left: trajectory graph */}
-              <Card className="col-span-5 flex min-h-0 flex-col">
-                <CardHeader>
-                  <CardTitle>Trajectory Graph</CardTitle>
-                  <span className="text-[10px] text-neutral-500">
-                    {state.experiments.length} nodes · badged by operator · colored by status
-                  </span>
-                </CardHeader>
-                <div className="min-h-0 flex-1">
-                  <TrajectoryGraph state={state} selectedId={selectedId} onSelect={setSelectedId} />
-                </div>
-              </Card>
-
-              {/* center: node view triad + metrics */}
-              <Card className="col-span-4 flex min-h-0 flex-col">
-                <CardHeader>
-                  <CardTitle>Node View</CardTitle>
-                  <div className="flex gap-1">
-                    {(["details", "diff", "metrics", "compare", "leaderboard"] as Tab[]).map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setTab(t)}
-                        className={cn(
-                          "rounded px-2 py-0.5 text-[11px] capitalize",
-                          tab === t
-                            ? "bg-sky-600 text-white"
-                            : "text-neutral-400 hover:bg-neutral-800"
-                        )}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                </CardHeader>
-                <div className="min-h-0 flex-1 overflow-auto">
-                  {tab === "details" && <ExperimentDetails exp={selected} />}
-                  {tab === "diff" && <DiffViewer exp={selected} />}
-                  {tab === "metrics" && <MetricsChart exp={selected} metricName={metricName} />}
-                  {tab === "compare" && (
-                    <CompareView state={state} selectedId={selectedId} onSelect={setSelectedId} />
-                  )}
-                  {tab === "leaderboard" && (
-                    <Leaderboard state={state} selectedId={selectedId} onSelect={setSelectedId} />
-                  )}
-                </div>
-              </Card>
-
-              {/* right: mission control (live) + research memory (hero) + event stream */}
-              <div className="col-span-3 flex min-h-0 flex-col gap-2">
-                {isLiveModeA && (
-                  <ControlDeck
-                    missionId={missionId}
-                    runtime={runtime}
-                    pendingApproval={pendingApproval}
-                    selectedId={selected?.id}
-                    onChanged={refreshRuntime}
-                    onFork={() => setForkOpen(true)}
-                  />
-                )}
-                <Card className="flex min-h-0 flex-[3] flex-col">
-                  <CardHeader>
-                    <CardTitle>🧠 Research Memory</CardTitle>
-                    <span className="text-[10px] text-neutral-500">
-                      {state.constraints.length} constraints
-                    </span>
-                  </CardHeader>
-                  <div className="min-h-0 flex-1 overflow-auto">
-                    <ResearchMemoryPanel
-                      constraints={state.constraints}
-                      highlightId={highlightConstraint}
-                      onSelectExperiment={setSelectedId}
-                    />
-                  </div>
-                </Card>
-                <Card className="flex min-h-0 flex-[2] flex-col">
-                  <CardHeader>
-                    <CardTitle>Event Stream</CardTitle>
-                    <span className="text-[10px] text-neutral-500">{state.events.length}</span>
-                  </CardHeader>
-                  <div className="min-h-0 flex-1">
-                    <EventStream events={state.events} />
-                  </div>
-                </Card>
-              </div>
-            </div>
-
-            <ForkDialog
-              missionId={missionId}
-              parent={selected}
-              open={forkOpen}
-              onClose={() => setForkOpen(false)}
-              executes={isLiveModeA}
-            />
-          </>
-        ) : (
-          <EmptyState
+    <div className="h-screen overflow-hidden bg-neutral-950 text-neutral-200">
+      {/* Outer shell split: resizable + collapsible left rail | main content. */}
+      <PanelGroup direction="horizontal" autoSaveId="kun-shell" className="h-full">
+        <Panel
+          ref={railRef}
+          id="rail"
+          order={1}
+          collapsible
+          collapsedSize={3}
+          minSize={12}
+          maxSize={28}
+          defaultSize={16}
+          onResize={(s) => setNavCollapsed(s <= 3.5)}
+          className="min-w-0"
+        >
+          <MissionNavigator
+            ref={navRef}
+            activeMissionId={launched ? missionId : undefined}
+            collapsed={navCollapsed}
+            onToggleCollapse={toggleRail}
+            onSelect={(c) => {
+              selectMission(c);
+              navRef.current?.refresh();
+            }}
             onNew={() => setNewOpen(true)}
             onObserve={() => setObserveOpen(true)}
             onReplay={() => setReplayOpen(true)}
           />
-        )}
-      </div>
+        </Panel>
+
+        <ResizeHandle direction="horizontal" />
+
+        <Panel id="main" order={2} minSize={40} className="min-w-0">
+          <div className="flex h-full min-w-0 flex-col">
+            {launched ? (
+              <>
+                <TopbarStatus
+                  state={state}
+                  selected={selected}
+                  modeLabel={modeLabel}
+                  runState={isLiveModeA ? runtime?.run_state : undefined}
+                  attention={attentionCount}
+                  controls={
+                    isLiveModeA ? (
+                      <ApprovalToggle
+                        compact
+                        missionId={missionId}
+                        approvalRequired={runtime?.approval_required}
+                        disabled={
+                          runtime?.run_state === "stopped" || runtime?.run_state === "finished"
+                        }
+                        onChanged={refreshRuntime}
+                      />
+                    ) : undefined
+                  }
+                />
+
+                <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">
+                  <Button size="sm" variant="ghost" onClick={goHome}>
+                    ⌂ Home
+                  </Button>
+                  <span className="text-neutral-600">|</span>
+                  <span className="text-neutral-500">
+                    {launched.kind} {missionId ? `· ${missionId}` : ""} {conn && `· ${conn}`}
+                  </span>
+                  <div className="ml-auto flex items-center gap-2">
+                    {/* Live steering (incl. Fork) is grouped in the right-rail Control Deck.
+                        For replay/observe, keep the record-only Fork affordance here. */}
+                    {!isLiveModeA && (
+                      <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
+                        ⑂ Fork from {selected?.id ?? "node"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* resizable 3-column workspace (graph | node | right-stack) */}
+                <div className="min-h-0 flex-1 p-2">
+                  <PanelGroup direction="horizontal" autoSaveId="kun-workspace" className="h-full">
+                    {/* left: trajectory graph */}
+                    <Panel
+                      ref={graph.ref}
+                      id="graph"
+                      order={1}
+                      collapsible
+                      collapsedSize={3}
+                      minSize={20}
+                      defaultSize={42}
+                      onResize={graph.onResize}
+                      className="min-w-0"
+                    >
+                      <PanelShell
+                        title="Trajectory Graph"
+                        direction="horizontal"
+                        collapsed={graph.collapsed}
+                        onToggle={graph.toggle}
+                        meta={
+                          <span className="text-[10px] text-neutral-500">
+                            {state.experiments.length} nodes · badged by operator · colored by status
+                          </span>
+                        }
+                      >
+                        <TrajectoryGraph
+                          state={state}
+                          selectedId={selectedId}
+                          onSelect={setSelectedId}
+                        />
+                      </PanelShell>
+                    </Panel>
+
+                    <ResizeHandle direction="horizontal" />
+
+                    {/* center: node view triad + metrics */}
+                    <Panel
+                      ref={node.ref}
+                      id="node"
+                      order={2}
+                      collapsible
+                      collapsedSize={3}
+                      minSize={18}
+                      defaultSize={33}
+                      onResize={node.onResize}
+                      className="min-w-0"
+                    >
+                      <PanelShell
+                        title="Node View"
+                        direction="horizontal"
+                        collapsed={node.collapsed}
+                        onToggle={node.toggle}
+                        bodyClassName="overflow-auto"
+                        meta={
+                          <div className="flex flex-wrap gap-1">
+                            {(["details", "diff", "metrics", "compare", "leaderboard"] as Tab[]).map(
+                              (t) => (
+                                <button
+                                  key={t}
+                                  onClick={() => setTab(t)}
+                                  className={cn(
+                                    "rounded px-2 py-0.5 text-[11px] capitalize",
+                                    tab === t
+                                      ? "bg-sky-600 text-white"
+                                      : "text-neutral-400 hover:bg-neutral-800"
+                                  )}
+                                >
+                                  {t}
+                                </button>
+                              )
+                            )}
+                          </div>
+                        }
+                      >
+                        {tab === "details" && <ExperimentDetails exp={selected} />}
+                        {tab === "diff" && <DiffViewer exp={selected} />}
+                        {tab === "metrics" && (
+                          <MetricsChart exp={selected} metricName={metricName} />
+                        )}
+                        {tab === "compare" && (
+                          <CompareView
+                            state={state}
+                            selectedId={selectedId}
+                            onSelect={setSelectedId}
+                          />
+                        )}
+                        {tab === "leaderboard" && (
+                          <Leaderboard
+                            state={state}
+                            selectedId={selectedId}
+                            onSelect={setSelectedId}
+                          />
+                        )}
+                      </PanelShell>
+                    </Panel>
+
+                    <ResizeHandle direction="horizontal" />
+
+                    {/* right: mission control (live) + research memory + event stream,
+                        stacked in a vertical resizable sub-group */}
+                    <Panel
+                      ref={right.ref}
+                      id="right"
+                      order={3}
+                      collapsible
+                      collapsedSize={3}
+                      minSize={15}
+                      defaultSize={25}
+                      onResize={right.onResize}
+                      className="min-w-0"
+                    >
+                      {right.collapsed ? (
+                        <CollapsedStub
+                          title="Right Rail"
+                          direction="horizontal"
+                          onExpand={right.toggle}
+                        />
+                      ) : (
+                        <PanelGroup
+                          direction="vertical"
+                          autoSaveId="kun-right"
+                          className="h-full"
+                        >
+                          {isLiveModeA && (
+                            <>
+                              <Panel
+                                ref={ctrl.ref}
+                                id="control"
+                                order={1}
+                                collapsible
+                                collapsedSize={5}
+                                minSize={12}
+                                defaultSize={26}
+                                onResize={ctrl.onResize}
+                                className="min-h-0"
+                              >
+                                {ctrl.collapsed ? (
+                                  <CollapsedStub
+                                    title="🛰 Mission Control"
+                                    direction="vertical"
+                                    onExpand={ctrl.toggle}
+                                  />
+                                ) : (
+                                  <ControlDeck
+                                    missionId={missionId}
+                                    runtime={runtime}
+                                    pendingApproval={pendingApproval}
+                                    selectedId={selected?.id}
+                                    onChanged={refreshRuntime}
+                                    onFork={() => setForkOpen(true)}
+                                    collapseControl={
+                                      <PanelCollapseButton
+                                        collapsed={false}
+                                        onClick={ctrl.toggle}
+                                        direction="vertical"
+                                      />
+                                    }
+                                  />
+                                )}
+                              </Panel>
+                              <ResizeHandle direction="vertical" />
+                            </>
+                          )}
+
+                          <Panel
+                            ref={memory.ref}
+                            id="memory"
+                            order={2}
+                            collapsible
+                            collapsedSize={5}
+                            minSize={15}
+                            defaultSize={isLiveModeA ? 44 : 60}
+                            onResize={memory.onResize}
+                            className="min-h-0"
+                          >
+                            <PanelShell
+                              title="🧠 Research Memory"
+                              direction="vertical"
+                              collapsed={memory.collapsed}
+                              onToggle={memory.toggle}
+                              bodyClassName="overflow-auto"
+                              meta={
+                                <span className="text-[10px] text-neutral-500">
+                                  {state.constraints.length} constraints
+                                </span>
+                              }
+                            >
+                              <ResearchMemoryPanel
+                                constraints={state.constraints}
+                                highlightId={highlightConstraint}
+                                onSelectExperiment={setSelectedId}
+                              />
+                            </PanelShell>
+                          </Panel>
+
+                          <ResizeHandle direction="vertical" />
+
+                          <Panel
+                            ref={stream.ref}
+                            id="events"
+                            order={3}
+                            collapsible
+                            collapsedSize={5}
+                            minSize={12}
+                            defaultSize={isLiveModeA ? 30 : 40}
+                            onResize={stream.onResize}
+                            className="min-h-0"
+                          >
+                            <PanelShell
+                              title="Event Stream"
+                              direction="vertical"
+                              collapsed={stream.collapsed}
+                              onToggle={stream.toggle}
+                              meta={
+                                <span className="text-[10px] text-neutral-500">
+                                  {state.events.length}
+                                </span>
+                              }
+                            >
+                              <EventStream events={state.events} />
+                            </PanelShell>
+                          </Panel>
+                        </PanelGroup>
+                      )}
+                    </Panel>
+                  </PanelGroup>
+                </div>
+
+                <ForkDialog
+                  missionId={missionId}
+                  parent={selected}
+                  open={forkOpen}
+                  onClose={() => setForkOpen(false)}
+                  executes={isLiveModeA}
+                />
+              </>
+            ) : (
+              <EmptyState
+                onNew={() => setNewOpen(true)}
+                onObserve={() => setObserveOpen(true)}
+                onReplay={() => setReplayOpen(true)}
+              />
+            )}
+          </div>
+        </Panel>
+      </PanelGroup>
 
       {/* entry-point modals (shared by the rail header + the empty-state hero) */}
       <NewMissionModal
