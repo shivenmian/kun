@@ -191,11 +191,15 @@ purely from each mission's event log (`build_state`) + its control file (§9.2) 
     "mode": "live | replay | observe | null",            // from mission_started; "observe" if registered-external
     "experiments_count": 6,
     "best": { "experiment_id": "exp_004", "metric": {"name":"val_accuracy","value":0.902} },  // or null
-    "updated_at": "<iso timestamp of the last event>" } 
+    "updated_at": "<iso timestamp of the last event>",
+    "approval_required": false,   // control.json approval gate is on (§9.2)
+    "pending_approval": false } // an experiment is emitted-but-unresolved awaiting approval (§9.1) -> rail badges "needs attention"
 ] }
 ```
 Sorted most-recently-updated first. Missing/unknown fields are omitted or null (builder stays
-tolerant). **W1/API owns this handler; WEB consumes it read-only.**
+tolerant). `approval_required`/`pending_approval` reuse the same derivation as `GET /state`
+(§9.1/§9.2) so the mission-navigator can flag missions that need a human. **W1/API owns this
+handler; WEB consumes it read-only.**
 
 ---
 
