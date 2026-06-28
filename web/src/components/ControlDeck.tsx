@@ -4,6 +4,7 @@
 // approval gate itself (when a proposal is pending), Fork, and Instruct. Only render
 // this for a live Mode-A mission (App gates on isLiveModeA) — replay/observe stay
 // steering-free. Controls disable by run_state (nothing to steer once stopped/finished).
+import type { ReactNode } from "react";
 import { Card, CardHeader, CardTitle, Button } from "./ui/primitives";
 import { StopPauseControls } from "./StopPauseControls";
 import { InstructBox } from "./InstructBox";
@@ -18,6 +19,7 @@ export function ControlDeck({
   selectedId,
   onChanged,
   onFork,
+  collapseControl,
 }: {
   missionId?: string;
   runtime: MissionRuntimeState | null;
@@ -28,23 +30,28 @@ export function ControlDeck({
   onChanged: () => void;
   /** Open the existing ForkDialog (kept mounted in App). */
   onFork: () => void;
+  /** Optional collapse/expand control rendered in the header (resizable shell). */
+  collapseControl?: ReactNode;
 }) {
   const runState = runtime?.run_state;
   const isDone = runState === "stopped" || runState === "finished";
   const rsColor = runStateColor(runState);
 
   return (
-    <Card className="flex flex-none flex-col">
+    <Card className="flex h-full min-h-0 flex-col">
       <CardHeader>
         <CardTitle>🛰 Mission Control</CardTitle>
-        {runState && (
-          <span className="text-[10px] font-semibold" style={{ color: rsColor }}>
-            {runStateLabel(runState)}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {runState && (
+            <span className="text-[10px] font-semibold" style={{ color: rsColor }}>
+              {runStateLabel(runState)}
+            </span>
+          )}
+          {collapseControl}
+        </div>
       </CardHeader>
 
-      <div className="flex max-h-[58vh] flex-col gap-2.5 overflow-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto p-3">
         {/* run controls + arm/disarm */}
         <div className="flex flex-wrap items-center gap-2">
           <StopPauseControls
