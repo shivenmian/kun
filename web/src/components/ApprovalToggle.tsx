@@ -29,8 +29,9 @@ export function ApprovalToggle({
     setBusy(true);
     setErr("");
     try {
-      // action:"resume" carries the approval flag (CONTRACT §9.2 control.json).
-      const r = await controlMission(missionId, "resume", { approval_required: next });
+      // No action: set the approval flag WITHOUT changing run_state, so arming the
+      // gate never un-pauses a paused mission (CONTRACT §5.1 / §9.2).
+      const r = await controlMission(missionId, null, { approval_required: next });
       if (!r.ok) setErr(`Error ${r.status}`);
       onChanged?.();
     } catch (e) {

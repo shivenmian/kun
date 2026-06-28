@@ -309,12 +309,14 @@ export async function rejectExperiment(
 /** Stop / pause / resume the Mode-A loop → writes control.json (CONTRACT §5.1 / §9.2). */
 export async function controlMission(
   missionId: string,
-  action: "stop" | "pause" | "resume",
+  // action is OPTIONAL: omit (pass null/undefined) to set approval_required WITHOUT
+  // changing run_state — arming/disarming the gate must not un-pause a paused mission.
+  action?: "stop" | "pause" | "resume" | null,
   extra?: { approval_required?: boolean; reason?: string }
 ): Promise<Response> {
   return fetch(`${API_BASE}/missions/${missionId}/stop`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, ...extra }),
+    body: JSON.stringify({ ...(action ? { action } : {}), ...extra }),
   });
 }

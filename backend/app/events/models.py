@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # The P0 event types the loop/cockpit produce & consume (CONTRACT §2). Kept as a
 # constant for reference/validation; unknown types are tolerated by the state builder.
@@ -144,9 +144,17 @@ class StopRequest(BaseModel):
     """Body for POST /missions/{id}/stop — the loop-control endpoint (CONTRACT §5.1/§9.2).
 
     `action` maps to control.json run_state: stop->"stop", pause->"pause", resume->"run".
-    `approval_required` (when present) toggles the approval gate mid-run; when omitted the
-    existing control-file value is preserved."""
+    `action` is OPTIONAL: omit it to set `approval_required` WITHOUT changing run_state (so
+    arming/disarming the approval gate never un-pauses a paused mission). `approval_required`
+    (when present) toggles the approval gate; when omitted the existing value is preserved.
+    At least one of `action` / `approval_required` must be provided."""
 
-    action: Literal["stop", "pause", "resume"]
+    action: Optional[Literal["stop", "pause", "resume"]] = None
     approval_required: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _require_one(self) -> "StopRequest":
+        if self.action is None and self.approval_required is None:
+            raise ValueError("provide at least one of 'action' or 'approval_required'")
+        return self
     reason: Optional[str] = None

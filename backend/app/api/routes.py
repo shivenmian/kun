@@ -263,9 +263,14 @@ def stop_mission(mission_id: str, body: StopRequest) -> Dict[str, Any]:
     no loop is running the API emits mission_finished{reason:"user_stop"} directly so a stop
     always terminates (CONTRACT §5.1)."""
     _require_mission(mission_id)
-    run_state = _ACTION_TO_RUN_STATE[body.action]
-
     current = read_control(mission_id)
+    # action is optional: omit it to set approval_required WITHOUT touching run_state
+    # (arming/disarming the gate must never un-pause a paused mission).
+    run_state = (
+        _ACTION_TO_RUN_STATE[body.action]
+        if body.action is not None
+        else current.get("run_state", "run")
+    )
     approval_required = (
         body.approval_required
         if body.approval_required is not None
