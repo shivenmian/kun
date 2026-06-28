@@ -1,0 +1,24 @@
+# Tiny-CNN mission spec. Mirrors the mission_created payload (sample.events.jsonl
+# line 1). run_mission loads this, emits mission_created, and drives the Mode-A loop.
+name: "Fashion-MNIST CNN Accuracy Sprint"
+goal: "Improve validation accuracy on Fashion-MNIST."
+objective:
+  metric: val_accuracy
+  direction: maximize
+  target: 0.92
+budget:
+  max_experiments: 8
+  max_runtime_per_experiment_sec: 90
+adapter: tiny_cnn
+patcher: config-patch
+model: claude-opus-4-8
+editable_files:
+  - config.yaml
+allowed_changes:
+  - learning_rate
+  - optimizer
+  - dropout
+  - scheduler
+  - weight_decay
+  - augmentation
+constraints: []

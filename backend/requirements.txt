@@ -6,6 +6,8 @@ pydantic==2.10.4
 pyyaml==6.0.2
 litellm==1.57.4
 # Tiny-CNN trainer (W3). CPU is fine for the demo.
-torch==2.5.1
-torchvision==0.20.1
+# NOTE (W3): bumped torch 2.5.1->2.6.0 / torchvision 0.20.1->0.21.0 — 2.5.1 has
+# no Python 3.13 wheels (CONTRACT §7 pins 3.13). 2.6.0 is the lowest 3.13 build.
+torch==2.6.0
+torchvision==0.21.0
 numpy==2.2.1

@@ -1,0 +1,13 @@
+# Baseline tiny-CNN config (Kun adapter: tiny_cnn).
+# These are the LLM-editable knobs (CONTRACT §7). The patcher writes a per-
+# experiment copy of this file with `changes` applied into runs/<mission>/<exp>/.
+learning_rate: 0.01
+optimizer: adam
+batch_size: 128
+dropout: 0.25
+conv_channels: 32
+weight_decay: 0.0
+augmentation: false
+scheduler: none
+epochs: 3
+seed: 1337
