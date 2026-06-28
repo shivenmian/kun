@@ -2,17 +2,15 @@
 
 Kun is a mission-control **cockpit and runtime** for autonomous ML experiment loops — and the **open standard those trajectories are logged in**.
 
-It is not a W&B replacement and it is not a generic agent chat UI. Kun is designed around a different primitive: the **research trajectory**. A trajectory captures why an autonomous researcher ran each experiment, what changed, what happened, what evidence came back, what the agent learned, and where a human can steer next.
+It is not a W&B replacement and it is not a generic agent chat UI. Kun is designed around a different primitive: the **research trajectory** — why an autonomous researcher ran each experiment, what changed, what happened, what evidence came back, what it learned, and where a human can steer next.
 
-Kun works in **two modes**: it can **drive** the loop itself (**Mode A** — its LLM planner proposes a change, a patcher applies it via config edits *or real code edits through a coding-agent subprocess*, the runner trains/evals, and it decides what to try next), or **observe and steer** an external loop (**Mode B** — any loop emits Kun's event format in ~5 lines via `kun_log`). Add-on, not a replacement: point Kun at your model, or plug your existing loop into the cockpit.
+Kun works in **two modes**:
+- **Mode A — Kun drives.** Its LLM planner proposes a change, a patcher applies it (config edits *or real code edits via a coding-agent subprocess*), the runner trains/evals, and it decides what to try next. Steering has teeth: fork, approve/reject, and mid-run instruct all execute.
+- **Mode B — Kun observes/steers an external loop.** Any loop emits Kun's event format in ~5 lines via `kun_log`, and (optionally) reads Kun's steering back through a feedback channel. Add-on, not a replacement.
 
 ## Core thesis
 
-Existing ML tooling is mostly **run-centric**: params, metrics, artifacts, curves, checkpoints.
-
-Existing agent tooling is mostly **trace-centric**: prompts, model calls, tool calls, spans, latency, cost.
-
-Autonomous ML experimentation needs a **trajectory-centric** interface:
+Run-centric tools (W&B/MLflow) show **params, metrics, artifacts, curves**. Agent-tracing tools (LangSmith/Weave) show **prompts, calls, spans, cost**. Autonomous ML experimentation needs a **trajectory-centric** interface:
 
 ```text
 mission
@@ -24,40 +22,39 @@ mission
             -> branches/forks/human interventions
 ```
 
-## What Kun does (scope, by build priority)
+The wedge/moat is **ecosystem position**, won the way LangSmith/OpenTelemetry won observability: be the thing you *instrument your existing loop with* (Mode B) and *run your research on* (Mode A) — not a novel algorithm.
 
-**Core (P0)** — a complete demo on its own:
-- Create a mission; run a live autonomous loop on a tiny task (LLM-driven, `config-patch`).
-- Record everything as JSONL events via the open contract (`kun_log`); ingest any external loop in ~5 lines.
-- Render a live, replayable **trajectory cockpit** (graph + node detail + diff + metrics + research-memory panel).
-- The **closed constraint loop**: a failure → a learned constraint with a bound → the next proposal visibly respects it (the hero beat).
+## Status
 
-**Power (P1)** — raises the ceiling:
-- `agent-edit`: Kun drives autoresearch on **real model code** (not just config knobs) via a coding-agent subprocess.
-- Live steering: **fork-from-node, approval gate, mid-run instruct** — all executing in Mode A; commit-per-node.
-- **Research-memory enrichment** (two-tier memory: deterministic hard bounds + bias-only soft lessons; positive Σ-summaries; confidence growth) — see [`docs/11-research-memory-design.md`](docs/11-research-memory-design.md).
+**P0 — core spine · ✅ built & tested.**
+- LLM-driven autonomous loop (Mode A) on a tiny Fashion-MNIST CNN (`config-patch`); heuristic fallback with no key.
+- Open logging contract + `kun_log` emit helper; JSONL event log is the single source of truth; in-memory state builder; live (SSE) and replay share one path.
+- Live, replayable **trajectory cockpit**: React Flow graph + node-view (detail / diff / leaderboard) + research-memory panel + event stream + topbar instruments.
+- The **closed constraint loop** (the hero): a failure → a learned constraint with a machine-checkable `bound` → the planner deterministically hard-rejects violating proposals → the next proposal visibly respects it.
+- Budget/stop → `mission_finished`; visual fork.
 
-**Second story (P2):** model benchmarking — run the same mission under different models and compare them *as autoresearchers*.
+**P1 — power features · ✅ built & tested.**
+- **`agent-edit`** patcher: Kun drives autoresearch on **real model code** via a coding-agent (Claude Code/Codex) subprocess, with graceful fallback to `config-patch`.
+- **Live steering**: approval gate (approve / edit / reject-with-replacement), mid-run instruct, fork-from-node that executes, stop/pause/resume — plus commit-per-node.
+- **Mode-B feedback channel** (`GET /missions/{id}/state`): an external loop reads back constraints/instructions and obeys — the wedge *with teeth*.
+- **Two-tier research memory**: deterministic **hard bounds** + bias-only **soft lessons** (positive Σ-summaries), with confidence growth. See [`docs/11-research-memory-design.md`](docs/11-research-memory-design.md).
+- **Compare view**: diff two nodes' configs + overlay their metric curves.
+- **Mission control UI**: persistent shell, mission navigator + history, new-mission modal, replay gallery (auto-discovered from `examples/replays/`), observe modal, control deck, topbar approval toggle, alerts/toasts.
 
-Build P0 first; see [`docs/00-spec.md`](docs/00-spec.md) §7/§9 for the full P0/P1/P2 order and the "minimum strong demo" stop-point.
+**P2 — model benchmarking · ⬜ designed, not yet built.** Run the same mission under different models and compare them *as autoresearchers* (sample-efficiency, time-to-target). The backend is provider-agnostic (LiteLLM, per-mission model) so this is additive.
 
-## Recommended MVP stack
+Canonical scope/priorities: [`docs/00-spec.md`](docs/00-spec.md). Frozen cross-component interface: [`CONTRACT.md`](CONTRACT.md).
+
+## Stack
 
 ```text
-Frontend: Vite React
-UI: Tailwind + shadcn/ui
-Graph: React Flow
-Charts: Recharts
-Diff viewer: react-diff-viewer (not Monaco)
-Backend: FastAPI
-Event stream: Server-Sent Events first, WebSocket only if needed
-Storage: JSONL event log only (in-memory state builder; no SQLite for MVP)
-Agent provider: LiteLLM (provider-agnostic) + a minimal per-mission model picker (powers benchmarking; no elaborate settings UI)
-Live task: Fashion-MNIST tiny CNN
-Serious replay: modded-nanogpt recorded trajectory
+Frontend   Vite + React + TS, Tailwind, React Flow (graph), Recharts, react-diff-viewer (not Monaco)
+Backend    FastAPI + SSE; JSONL event log only (in-memory state builder; no SQLite)
+Provider   LiteLLM (provider-agnostic) + per-mission model id; reads ANTHROPIC_API_KEY from backend/.env
+Live task  Fashion-MNIST tiny CNN (config-patch); agent-edit drives real code via a coding-agent subprocess
 ```
 
-## Development (local)
+## Run it (local)
 
 Two processes — FastAPI backend and the Vite cockpit.
 
@@ -69,36 +66,52 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 
 # 2) Cockpit (Vite + React on :5173, proxies /api -> :8000)
-cd web
-npm install
-npm run dev
+cd web && npm install && npm run dev
 ```
 
-Then open the cockpit and load the bundled replay
-`examples/replays/sample.events.jsonl` (the static replay renders with no backend
-running). For a live tiny-CNN mission, set `ANTHROPIC_API_KEY` in `backend/.env`
-(the loop falls back to a heuristic planner with no key). The wedge proof:
+- **Static replay (no backend):** open the cockpit → **Replay** → "Fashion-MNIST sample".
+- **Live tiny-CNN mission:** set `ANTHROPIC_API_KEY` in `backend/.env` (no key → heuristic planner), then **+ New mission** → "Create & start". Steer it from the Control Deck (approve/edit/reject, instruct, fork, pause/stop).
+- **The wedge (Mode B), ~5 lines:**
+  ```bash
+  python examples/external_loop_demo.py        # someone else's loop; the only Kun bit is kun_log(...)
+  # then: cockpit -> Observe -> mission_external_demo  (it appears live in the cockpit)
+  ```
 
-```bash
-KUN_EVENTS=runs/mission_external_demo/events.jsonl python examples/external_loop_demo.py
-# then "Observe external mission" -> mission_external_demo in the cockpit (or curl POST /missions/register)
+Every mission lives at `runs/<mission_id>/events.jsonl`; live and replay consume the same bytes.
+
+## Bundled replays (`examples/replays/`)
+
+Loadable one-click from the cockpit's **Replay** gallery (auto-discovered):
+
+| File | What it is |
+|---|---|
+| `sample.events.jsonl` | Hand-authored reference tiny-CNN trajectory — the closed-loop hero. Loads offline. |
+| `autonomous_research.events.jsonl` | **Real** autonomous Opus run: an LR range test that finds the optimum and self-corrects. |
+| `live_steering_dod5.events.jsonl` | **Real** live Mode-A capture with human steering — NaN → learned bound → reshape (failures were steered). |
+| `agent_edit_real.events.jsonl` | **Real** `agent-edit` capture editing real code (numpy MLP) — mechanism proof, scripted decisions. |
+| `nanogpt.events.jsonl` | **Synthetic** stand-in for the serious modded-nanogpt run; replaced by a recorded run via `scripts/convert_nanogpt.py` (see [`asset-b/`](asset-b/)). |
+
+## Repository layout
+
+```text
+backend/    FastAPI app — api/ (routes), events/ (JSONL log + models), state/ (builder),
+            loop/ (planner, patcher, runner, evaluator, decider, constraints, steering, memory_writer, llm_client)
+web/        Vite + React cockpit (src/components, src/lib, src/state)
+kun/        the open contract — log.py (the ~5-line kun_log emit helper)
+examples/   tiny_cnn/ trainer · replays/ (bundled trajectories) · external_loop_demo.py + external_loop_mode_b.py (wedge)
+scripts/    gen_sample_events.py · convert_nanogpt.py (nanogpt run -> events)
+asset-b/    Modal wrapper + runbook for the recorded nanogpt run (the serious "real code" demo asset)
+runs/       per-mission event logs (gitignored)
+docs/       00-spec (canonical) + design notes 01–12
 ```
-
-The event log is the single source of truth: every mission lives at
-`runs/<mission_id>/events.jsonl`; live and replay consume the same bytes.
 
 ## Documentation map
 
-- [`docs/00-spec.md`](docs/00-spec.md) - **canonical post-audit build spec. Read this first; it wins over docs 01–07 where they conflict.**
-- [`docs/01-product-design.md`](docs/01-product-design.md) - product thesis, scope, UX, features, non-goals.
-- [`docs/02-technical-architecture.md`](docs/02-technical-architecture.md) - system architecture and implementation shape.
-- [`docs/03-event-schema.md`](docs/03-event-schema.md) - JSONL event contract and examples.
-- [`docs/04-implementation-plan.md`](docs/04-implementation-plan.md) - build order, milestones, and acceptance criteria.
-- [`docs/05-demo-plan.md`](docs/05-demo-plan.md) - final demo strategy and script.
-- [`docs/06-agent-workstreams.md`](docs/06-agent-workstreams.md) - parallel coding-agent tasks.
-- [`docs/07-modded-nanogpt-runbook.md`](docs/07-modded-nanogpt-runbook.md) - plan for the serious recorded run.
-- [`docs/08-agent-edit-design.md`](docs/08-agent-edit-design.md) - design note for the `agent-edit` patcher (Kun driving real code via a coding-agent subprocess). Read before P1.
-- [`docs/09-operator-checklist.md`](docs/09-operator-checklist.md) - human/ops tasks outside the build (API keys, GPU, the Asset B nanogpt run, demo prep).
-- [`docs/10-implementation-handoff.md`](docs/10-implementation-handoff.md) - kickoff brief for the implementation agent (paste it, or point the agent at it).
-- [`docs/11-research-memory-design.md`](docs/11-research-memory-design.md) - design note for the P1 research-memory enrichment (two-tier memory: hard bounds + soft lessons). Read before building P1 memory.
-- [`docs/12-p1-handoff.md`](docs/12-p1-handoff.md) - kickoff brief for the **subagent-orchestrated** P1 build (serial contract-freeze → parallel subagents in worktrees → serial integration). Tracks the carried-forward P0 Stop/Pause gap.
+- [`docs/00-spec.md`](docs/00-spec.md) — **canonical build spec; read first (wins over 01–07 on conflict).**
+- [`CONTRACT.md`](CONTRACT.md) — frozen cross-component interface (event schema, endpoints, ownership).
+- [`DEMO_TEST_PLAN.md`](DEMO_TEST_PLAN.md) — the 1-min video recording set + full manual test/demo-rehearsal plan.
+- [`docs/01-product-design.md`](docs/01-product-design.md) · [`02-technical-architecture.md`](docs/02-technical-architecture.md) · [`03-event-schema.md`](docs/03-event-schema.md) — product, architecture, the JSONL event contract.
+- [`docs/04-implementation-plan.md`](docs/04-implementation-plan.md) · [`05-demo-plan.md`](docs/05-demo-plan.md) · [`06-agent-workstreams.md`](docs/06-agent-workstreams.md) — build order, demo, parallel workstreams.
+- [`docs/07-modded-nanogpt-runbook.md`](docs/07-modded-nanogpt-runbook.md) — the serious recorded run (see also `asset-b/`).
+- [`docs/08-agent-edit-design.md`](docs/08-agent-edit-design.md) · [`11-research-memory-design.md`](docs/11-research-memory-design.md) — `agent-edit` and two-tier memory design notes.
+- [`docs/09-operator-checklist.md`](docs/09-operator-checklist.md) · [`10-implementation-handoff.md`](docs/10-implementation-handoff.md) · [`12-p1-handoff.md`](docs/12-p1-handoff.md) — ops + implementation handoff briefs.
