@@ -35,6 +35,7 @@ mission
 **Power (P1)** — raises the ceiling:
 - `agent-edit`: Kun drives autoresearch on **real model code** (not just config knobs) via a coding-agent subprocess.
 - Live steering: **fork-from-node, approval gate, mid-run instruct** — all executing in Mode A; commit-per-node.
+- **Research-memory enrichment** (two-tier memory: deterministic hard bounds + bias-only soft lessons; positive Σ-summaries; confidence growth) — see [`docs/11-research-memory-design.md`](docs/11-research-memory-design.md).
 
 **Second story (P2):** model benchmarking — run the same mission under different models and compare them *as autoresearchers*.
 
@@ -99,3 +100,4 @@ The event log is the single source of truth: every mission lives at
 - [`docs/08-agent-edit-design.md`](docs/08-agent-edit-design.md) - design note for the `agent-edit` patcher (Kun driving real code via a coding-agent subprocess). Read before P1.
 - [`docs/09-operator-checklist.md`](docs/09-operator-checklist.md) - human/ops tasks outside the build (API keys, GPU, the Asset B nanogpt run, demo prep).
 - [`docs/10-implementation-handoff.md`](docs/10-implementation-handoff.md) - kickoff brief for the implementation agent (paste it, or point the agent at it).
+- [`docs/11-research-memory-design.md`](docs/11-research-memory-design.md) - design note for the P1 research-memory enrichment (two-tier memory: hard bounds + soft lessons). Read before building P1 memory.

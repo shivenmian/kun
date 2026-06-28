@@ -96,6 +96,13 @@ research-memory panel renders and the planner enforces:
 - **`bound` is what the planner HARD-REJECTS against.** Always include it for a numeric
   limit. The op is the *banned* direction (here `>` 0.004 means reject any proposal whose
   `changes.learning_rate > 0.004`).
+- **Two memory tiers (same object):** a constraint **with** a `bound` is a *hard constraint*
+  (deterministic hard-reject). A constraint **without** a `bound` is a *soft lesson* —
+  prose/positive findings that only **bias** the planner prompt, never hard-reject. Both use
+  this one object + the existing `constraint_added`/`constraint_learned` events (no new types).
+  P0 ships the hard tier (NaN→LR rule); soft lessons + richer rules are P1 — see
+  [doc 11](docs/11-research-memory-design.md). Keep the hard tier rule-derived; LLM-authored
+  memory is soft-tier only.
 - Closed-loop requirement (do not let it silently no-op): `experiment_failed` (NaN) →
   emit `constraint_learned` with a `bound` via a **deterministic rule** (NaN at lr=x →
   `{param:"learning_rate", op:">", value:x*0.5}`) → it enters mission state + the memory

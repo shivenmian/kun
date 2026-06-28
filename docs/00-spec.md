@@ -139,6 +139,8 @@ The optional **structured `bound`** is what makes a "banned region" machine-chec
 3. The planner reads accumulated constraints and **(a) injects them into the prompt** AND **(b) hard-rejects any proposal whose `changes` violate a structured `bound`** (validation-retry). The hard-reject makes the reshape **deterministic and visible on stage** — not a hope that the LLM "noticed."
 4. The next `experiment_proposed` respects the bound and its `rationale` references the constraint — visible causation. *This is the hero beat; build it so it cannot silently no-op.*
 
+**Memory tiers (P0 hard tier shipped; richer memory is P1 — see [doc 11](11-research-memory-design.md)).** Keep every memory entry in one of two tiers so intelligence can be added without ever letting the loop no-op: **hard constraints** (structured `bound`s, enforced by the deterministic hard-reject — rule-derived only) and **soft lessons** (prose/positive findings like "cosine helped +0.012", injected into the planner prompt to *bias*, may be LLM-authored). Both reuse the canonical constraint object and `constraint_added`/`constraint_learned` (a soft lesson is just a `constraint_learned` with no `bound`) — no schema change. P0 ships only the hard tier with the single NaN→LR rule; **P1 enrichment** adds more deterministic rules (e.g. underfitting bounds), positive Σ-summary lessons, and memory hygiene (merge + confidence growth). Today, outside human input, the only auto-learned memory is the NaN→LR bound.
+
 ### Decisions, selection policy & topbar
 Each selection-policy branch emits a `decision_created` with `decision ∈ {continue_branch, promote, reject, retry_debug, fork, stop}` so the graph shows *why* each node was expanded. The topbar `model` string is the mission's LiteLLM model id.
 
@@ -163,7 +165,7 @@ Each accepted node is a `git commit` on a per-trajectory branch (local, no GitHu
 
 - **Trajectory graph** (React Flow): nodes colored by status (buggy = red, etc.), badged by operator; selecting a node drives every panel. (Large-trajectory legibility — collapse/filter by status — is P1 nice-to-have if the nanogpt graph gets dense.)
 - **Node view — P0 triad + P1 compare:** `detail` (hypothesis/rationale/code) · `diff` (unified diff vs parent) · `leaderboard` (results table sorted by metric) — these three are P0 · **`compare`** *(P1)* (diff two nodes' configs + overlay their metric curves — the most-wanted ML action; makes a large trajectory tractable).
-- **Research-memory panel** (P0): the **mission-wide accumulated** constraints/learnings/banned-regions across the whole trajectory — the surface that embodies "memory" and makes the hero beat legible. A new learned constraint visibly enters this panel and then reshapes the next proposal.
+- **Research-memory panel** (P0): the **mission-wide accumulated** constraints/learnings/banned-regions across the whole trajectory — the surface that embodies "memory" and makes the hero beat legible. A new learned constraint visibly enters this panel and then reshapes the next proposal. *(P1 enrichment, [doc 11](11-research-memory-design.md): also render positive Σ-summary lessons and rising confidence as evidence accumulates — turning the panel from a blocklist into a research notebook.)*
 - **Cross-model / benchmarking view** (P2): the same mission run under N models side-by-side — compares them *as autoresearchers* (hypothesis quality, sample-efficiency, time/cost to target). See §8 Beat 5.
 - **Steering controls:** fork dialog · approval gate (approve/reject/edit a pending proposal) · mid-run instruct box · stop/pause.
 - **Topbar status:** mission name · best metric · current experiment · budget used · mode (A-live / B-observe / replay / paused) · runtime · model.
@@ -190,6 +192,7 @@ Each accepted node is a `git commit` on a per-trajectory branch (local, no GitHu
 - **`agent-edit` patcher** — Kun autoresearches *real code* (the big power-up). **Gated (see §9): build only after the doc-08 spike passes; fall back to `config-patch` the instant a cycle flakes.** Highest wow-per-hour *if* it works, but it can't be demoed live and is the top scope-trap — treat it as the most droppable P1 item.
 - **Mode-B feedback channel** (external loop reads back constraints/instructions → steering has teeth).
 - **commit-per-node** (synergizes with `agent-edit`).
+- **Research-memory enrichment** ([doc 11](11-research-memory-design.md)): make memory richer than "human input + one NaN rule" via a **two-tier** model (deterministic hard `bound`s + bias-only soft lessons). Sub-items, by value-per-effort: (1) more deterministic learned rules (e.g. underfitting → `dropout` bound, closing the sample↔live gap); (2) positive Σ-summary lessons in the prompt; (3) memory hygiene (merge constraints + grow confidence); (4) gated LLM "memory writer" (soft tier only). Low-risk, high narrative value — build early in P1 (after `compare`). Reuses the canonical constraint object; no schema change.
 - Recorded **Mode-A-on-real-code** run for the serious demo (§8 Beat 1).
 
 ### P2 — second demo story (in scope, lowest priority; first to drop under time pressure)
@@ -231,7 +234,7 @@ P0: event schema (+deltas) + open contract + emit helper
       -> tiny CNN trainer + one-experiment runner (config-patch)
         -> LLM-driven loop + budget/stop + closed constraint loop (hero)
           -> live SSE + visual fork + replay
-P1: compare view -> live fork execution + approval gate + mid-run instruct
+P1: compare view -> research-memory enrichment (two-tier; doc 11) -> live fork execution + approval gate + mid-run instruct
   -> agent-edit patcher (orchestrate Claude Code/Codex on real code) [GATED — see below]
     -> Mode-B feedback channel + commit-per-node
       -> recorded Mode-A-on-real-code (nanogpt) run -> serious replay

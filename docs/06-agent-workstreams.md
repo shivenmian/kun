@@ -109,7 +109,7 @@ Implement proposal/evaluation/decision logic.
 - Structured output validation.
 - Evaluator verdicts.
 - Decider next actions.
-- Constraint handling.
+- Constraint handling. **P0:** the deterministic NaN→LR `bound` generator + the hard-reject filter (the hero spine). **P1 — research-memory enrichment ([doc 11](11-research-memory-design.md)):** a **two-tier** model (deterministic hard `bound`s + bias-only soft lessons), more deterministic learned rules (e.g. underfitting → `dropout` bound), positive Σ-summary lessons injected into the prompt, and memory hygiene (merge constraints + grow confidence). Reuse the canonical constraint object; keep the hard tier rule-derived (never let memory no-op); any LLM-authored memory is soft-tier/additive only.
 
 ### Inputs
 
@@ -147,7 +147,7 @@ Build the main product UI.
 - Metrics chart.
 - Diff viewer (react-diff-viewer, not Monaco).
 - Compare view (P1, built FIRST in P1): diff two nodes' configs + overlay their metric curves. (Moved out of P0 — pure cockpit craft, not cut. The `CompareView.tsx` file is still built, just in P1.)
-- Research-memory panel (CORE): mission-wide accumulated constraints/learnings; a new learned constraint visibly enters it and reshapes the next proposal.
+- Research-memory panel (CORE): mission-wide accumulated constraints/learnings; a new learned constraint visibly enters it and reshapes the next proposal. **P1 enrichment ([doc 11](11-research-memory-design.md)):** also render positive Σ-summary lessons and rising confidence as evidence accumulates (the panel becomes a research notebook, not just a blocklist).
 - Leaderboard (results table sorted by metric).
 - Topbar status: mission name, best metric, current experiment, budget used, mode (**A-live / B-observe / replay / paused**), runtime, model.
 - Event stream.
@@ -267,6 +267,7 @@ Make the hackathon presentation reliable and impressive.
 ### P1 — power features (start only after the P0 spine demos end-to-end)
 
 6. **`compare` view** (moved P0→P1; build FIRST in P1) — diff two nodes' configs + overlay metric curves; pure cockpit craft, the most-wanted ML action.
+6b. **Research-memory enrichment** ([doc 11](11-research-memory-design.md)) — two-tier memory (deterministic hard `bound`s + bias-only soft lessons); more deterministic learned rules (e.g. underfitting), positive Σ-summary lessons, memory hygiene (merge + confidence growth), and a gated soft-tier LLM "memory writer". Low-risk, high narrative value — build early in P1 (alongside `compare`); reuses the canonical constraint object (no schema change).
 7. Live fork execution (Mode A) + approval gate + mid-run instruct.
 8. **`agent-edit` patcher** (orchestrate Claude Code/Codex on real code) — **GATED:** build only after the doc-08 sanity spike passes; fall back to `config-patch` the instant a cycle flakes; it can't be demoed live (recorded-only) and is the top scope-trap / most-droppable P1 item.
 9. Mode-B feedback channel (`GET /missions/{id}/state`) + commit-per-node.
