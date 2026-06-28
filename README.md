@@ -1,8 +1,10 @@
 # Kun
 
-Kun is a mission-control cockpit for autonomous ML experiment loops.
+Kun is a mission-control **cockpit and runtime** for autonomous ML experiment loops — and the **open standard those trajectories are logged in**.
 
 It is not a W&B replacement and it is not a generic agent chat UI. Kun is designed around a different primitive: the **research trajectory**. A trajectory captures why an autonomous researcher ran each experiment, what changed, what happened, what evidence came back, what the agent learned, and where a human can steer next.
+
+Kun works in **two modes**: it can **drive** the loop itself (**Mode A** — its LLM planner proposes a change, a patcher applies it via config edits *or real code edits through a coding-agent subprocess*, the runner trains/evals, and it decides what to try next), or **observe and steer** an external loop (**Mode B** — any loop emits Kun's event format in ~5 lines via `kun_log`). Add-on, not a replacement: point Kun at your model, or plug your existing loop into the cockpit.
 
 ## Core thesis
 
@@ -22,16 +24,21 @@ mission
             -> branches/forks/human interventions
 ```
 
-## Hackathon scope
+## What Kun does (scope, by build priority)
 
-Kun should support:
+**Core (P0)** — a complete demo on its own:
+- Create a mission; run a live autonomous loop on a tiny task (LLM-driven, `config-patch`).
+- Record everything as JSONL events via the open contract (`kun_log`); ingest any external loop in ~5 lines.
+- Render a live, replayable **trajectory cockpit** (graph + node detail + diff + metrics + research-memory panel).
+- The **closed constraint loop**: a failure → a learned constraint with a bound → the next proposal visibly respects it (the hero beat).
 
-1. Creating a research mission.
-2. Running a real autonomous experiment loop on a tiny ML task.
-3. Recording every important action as structured JSONL events.
-4. Rendering the trajectory as a live cockpit UI.
-5. Replaying a saved richer session, especially a modded-nanogpt-style optimization run.
-6. Forking from a prior experiment with a human constraint.
+**Power (P1)** — raises the ceiling:
+- `agent-edit`: Kun drives autoresearch on **real model code** (not just config knobs) via a coding-agent subprocess.
+- Live steering: **fork-from-node, approval gate, mid-run instruct** — all executing in Mode A; commit-per-node.
+
+**Second story (P2):** model benchmarking — run the same mission under different models and compare them *as autoresearchers*.
+
+Build P0 first; see [`docs/00-spec.md`](docs/00-spec.md) §7/§9 for the full P0/P1/P2 order and the "minimum strong demo" stop-point.
 
 ## Recommended MVP stack
 
