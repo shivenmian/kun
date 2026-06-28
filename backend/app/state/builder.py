@@ -241,6 +241,9 @@ def build_state(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         "branches": list(branches.values()),
         "constraints": list(constraints.values()),
         "bestExperiment": best_experiment,
+        # Alias for vocabulary parity with the web reducer (keys off
+        # bestExperimentId); additive — bestExperiment kept for back-compat.
+        "bestExperimentId": (best_experiment or {}).get("id"),
         "currentExperiment": current_experiment,
         "mode": mission.get("mode"),
         "budgetUsage": budget_usage,
