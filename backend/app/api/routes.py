@@ -79,6 +79,13 @@ def _mission_summary(mission_id: str) -> Dict[str, Any]:
 
     last_ts = events[-1].get("timestamp") if events else None
 
+    # §5.2 attention flags — reuse the SAME derivation as GET /state (§9.1/§9.2) so the
+    # two endpoints always agree. approval_required is the control-file gate; pending_approval
+    # is the §9.1 object coerced to a bool for the summary row (a proposed-but-unresolved
+    # experiment at the gate => the navigator badges "needs attention").
+    approval_required = bool(control.get("approval_required", False))
+    pending_approval = bool(_compute_pending_approval(events, state, approval_required))
+
     return {
         "mission_id": mission_id,
         "name": mission.get("name"),
@@ -87,6 +94,8 @@ def _mission_summary(mission_id: str) -> Dict[str, Any]:
         "experiments_count": len(state.get("experiments", [])),
         "best": _compute_best(state) if state else None,
         "updated_at": last_ts,
+        "approval_required": approval_required,
+        "pending_approval": pending_approval,
     }
 
 
@@ -350,6 +359,36 @@ def _derive_run_state(events: List[Dict[str, Any]], control: Dict[str, Any]) -> 
     return _RUN_STATE_VIEW.get(control.get("run_state", "run"), "run")
 
 
+def _compute_pending_approval(
+    events: List[Dict[str, Any]],
+    state: Dict[str, Any],
+    approval_required: bool,
+) -> Optional[Dict[str, Any]]:
+    """§9.1 pending_approval: an experiment still merely "proposed" (per build_state — it has
+    NOT started/finished, so it sits at the gate) AND with no later experiment_approved/
+    experiment_rejected for its id ("emitted-but-not-yet-consumed"), and only when the gate is
+    on. An experiment that already ran is past the gate. Returns the {experiment_id, changes,
+    operator} object (last unresolved wins) or None. Shared by GET /state (object) and the
+    GET /missions summaries (coerced to bool) so both endpoints agree."""
+    if not approval_required:
+        return None
+    resolved_ids = {
+        ev.get("experiment_id")
+        for ev in events
+        if ev.get("type") in ("experiment_approved", "experiment_rejected")
+        and ev.get("experiment_id")
+    }
+    pending: Optional[Dict[str, Any]] = None
+    for exp in state.get("experiments", []):  # insertion order; last unresolved wins
+        if exp.get("status") == "proposed" and exp.get("id") not in resolved_ids:
+            pending = {
+                "experiment_id": exp["id"],
+                "changes": exp.get("changes"),
+                "operator": exp.get("operator"),
+            }
+    return pending
+
+
 def _compute_best(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Best experiment as {experiment_id, metric{name,value}}.
 
@@ -408,25 +447,8 @@ def _build_steering_state(
     for c in state.get("constraints", []):
         (active_constraints if c.get("bound") else soft_lessons).append(c)
 
-    # pending_approval: an experiment that is still merely "proposed" (per build_state — it
-    # has NOT started/finished, so it sits at the gate) AND has no later
-    # experiment_approved/experiment_rejected for its id ("emitted-but-not-yet-consumed"),
-    # and only when the gate is on. An experiment that already ran is past the gate.
-    pending_approval: Optional[Dict[str, Any]] = None
-    if approval_required:
-        resolved_ids = {
-            ev.get("experiment_id")
-            for ev in events
-            if ev.get("type") in ("experiment_approved", "experiment_rejected")
-            and ev.get("experiment_id")
-        }
-        for exp in state.get("experiments", []):  # insertion order; last unresolved wins
-            if exp.get("status") == "proposed" and exp.get("id") not in resolved_ids:
-                pending_approval = {
-                    "experiment_id": exp["id"],
-                    "changes": exp.get("changes"),
-                    "operator": exp.get("operator"),
-                }
+    # pending_approval: see _compute_pending_approval (shared with the GET /missions summary).
+    pending_approval = _compute_pending_approval(events, state, approval_required)
 
     # pending_instructions: instruction_added events not yet "consumed". Best-effort
     # (documented): an instruction is consumed once a later experiment_proposed appears

@@ -24,6 +24,9 @@ from app.main import app
 client = TestClient(app)
 
 REPLAY = "/Users/shivenmian/kun/examples/replays/nanogpt.events.jsonl"
+# repo-relative form of the same replay — proves register() resolves it against the repo
+# root regardless of the backend CWD (CONTRACT §8.2).
+REPLAY_RELATIVE = "examples/replays/nanogpt.events.jsonl"
 SUMMARY_FIELDS = {
     "mission_id",
     "name",
@@ -32,6 +35,8 @@ SUMMARY_FIELDS = {
     "experiments_count",
     "best",
     "updated_at",
+    "approval_required",
+    "pending_approval",
 }
 
 
@@ -128,7 +133,43 @@ def main() -> None:
         # concretely: m2 (later) precedes m1 in the list
         assert missions.index(by_id[m2]) < missions.index(by_id[m1])
 
+        # every row carries the boolean attention flags (default false here)
+        for m in missions:
+            assert isinstance(m["approval_required"], bool), m
+            assert isinstance(m["pending_approval"], bool), m
+        assert by_id[m1]["approval_required"] is False
+        assert by_id[m1]["pending_approval"] is False
+
+        # --- §5.2 attention flags: turn the approval gate ON via the stop endpoint ---
+        # resume + approval_required:true writes control.json without starting a loop.
+        m3 = _create_mission("Approval Sprint")
+        created.append(m3)
+        r = client.post("/missions/" + m3 + "/stop", json={"action": "resume", "approval_required": True})
+        assert r.status_code == 200, r.text
+        r = client.get("/missions")
+        assert r.status_code == 200, r.text
+        by_id = {m["mission_id"]: m for m in r.json()["missions"]}
+        row = by_id[m3]
+        assert row["approval_required"] is True, row
+        # no proposed experiment yet -> pending_approval false, but the FIELD must exist & be bool
+        assert "pending_approval" in row and isinstance(row["pending_approval"], bool), row
+        assert row["pending_approval"] is False, row
+        # the summary flags must agree with GET /state's derivation (shared computation)
+        st = client.get("/missions/" + m3 + "/state").json()
+        assert st["approval_required"] == row["approval_required"], (st, row)
+        assert bool(st["pending_approval"]) == row["pending_approval"], (st, row)
+
+        # --- repo-relative register: resolve examples/replays/... against the repo root ---
+        rel_id = "rel_nano_" + str(int(time.time()))
+        r = client.post("/missions/register", json={"mission_id": rel_id, "events_path": REPLAY_RELATIVE})
+        assert r.status_code == 200, r.text
+        r = client.get("/missions/" + rel_id + "/events")
+        assert r.status_code == 200, r.text
+        rel_events = r.json()
+        assert isinstance(rel_events, list) and len(rel_events) > 0, rel_events
+
         print(f"PASS: GET /missions returned {len(missions)} §5.2 summary rows, sorted desc")
+        print("PASS: approval_required/pending_approval flags + repo-relative register")
     finally:
         for mid in created:
             shutil.rmtree(events_path(mid).parent, ignore_errors=True)
