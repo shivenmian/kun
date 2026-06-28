@@ -67,3 +67,4 @@ Serious replay: modded-nanogpt recorded trajectory
 - [`docs/06-agent-workstreams.md`](docs/06-agent-workstreams.md) - parallel coding-agent tasks.
 - [`docs/07-modded-nanogpt-runbook.md`](docs/07-modded-nanogpt-runbook.md) - plan for the serious recorded run.
 - [`docs/08-agent-edit-design.md`](docs/08-agent-edit-design.md) - design note for the `agent-edit` patcher (Kun driving real code via a coding-agent subprocess). Read before P1.
+- [`docs/09-operator-checklist.md`](docs/09-operator-checklist.md) - human/ops tasks outside the build (API keys, GPU, the Asset B nanogpt run, demo prep).
