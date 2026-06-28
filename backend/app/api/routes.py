@@ -27,6 +27,7 @@ from app.events import (
     read_events,
     register_mission,
 )
+from app.events.log_io import _REGISTERED
 from app.state import build_state
 
 # actor stamped on every human-steering event (CONTRACT §1 / §5.1)
@@ -52,10 +53,53 @@ def _require_mission(mission_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"unknown mission '{mission_id}'")
 
 
+def _mission_summary(mission_id: str) -> Dict[str, Any]:
+    """One §5.2 summary row for a mission, derived purely from its event log
+    (build_state) + control file. Robust: a missing/empty/corrupt log degrades to a
+    minimal row instead of raising, so one bad mission never 500s the whole list."""
+    try:
+        events = read_events(mission_id)
+    except Exception:
+        events = []
+    registered = mission_id in _REGISTERED
+
+    try:
+        state = build_state(events)
+    except Exception:
+        state = {}
+
+    mission = state.get("mission") or {}
+    # mode: from mission_started; a registered-external mission is "observe" regardless.
+    mode = "observe" if registered else mission.get("mode")
+
+    try:
+        control = read_control(mission_id)
+    except Exception:
+        control = {}
+
+    last_ts = events[-1].get("timestamp") if events else None
+
+    return {
+        "mission_id": mission_id,
+        "name": mission.get("name"),
+        "run_state": _derive_run_state(events, control),
+        "mode": mode,
+        "experiments_count": len(state.get("experiments", [])),
+        "best": _compute_best(state) if state else None,
+        "updated_at": last_ts,
+    }
+
+
 @router.get("/missions")
 def get_missions() -> Dict[str, Any]:
-    """List known mission ids (handy for the UI)."""
-    return {"missions": list_missions()}
+    """Mission-history panel (CONTRACT §5.2): one summary object per known mission,
+    sorted most-recently-updated first. `missions` stays a list; each item is now an
+    object (was a bare id string). Pure read over each mission's event log + control
+    file — no new events. One bad/empty log degrades gracefully (see _mission_summary)."""
+    summaries = [_mission_summary(mid) for mid in list_missions()]
+    # most-recently-updated first; missions with no timestamp sort last (stable).
+    summaries.sort(key=lambda s: s.get("updated_at") or "", reverse=True)
+    return {"missions": summaries}
 
 
 @router.post("/missions")
@@ -297,6 +341,15 @@ async def stream_mission(mission_id: str) -> EventSourceResponse:
 # ---------------------------------------------------------------------------
 
 
+def _derive_run_state(events: List[Dict[str, Any]], control: Dict[str, Any]) -> str:
+    """§9.1 presentation run_state: control.json view ("run"->run, "pause"->paused,
+    "stop"->stopped), but a mission_finished event always wins -> "finished". Shared by
+    GET /state and the GET /missions summaries so both derive run_state identically."""
+    if any(e.get("type") == "mission_finished" for e in events):
+        return "finished"
+    return _RUN_STATE_VIEW.get(control.get("run_state", "run"), "run")
+
+
 def _compute_best(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Best experiment as {experiment_id, metric{name,value}}.
 
@@ -347,12 +400,7 @@ def _build_steering_state(
     """Assemble the §9.1 feedback object."""
     approval_required = bool(control.get("approval_required", False))
 
-    # run_state: control.json view, but mission_finished always wins -> "finished".
-    finished = any(e.get("type") == "mission_finished" for e in events)
-    if finished:
-        run_state = "finished"
-    else:
-        run_state = _RUN_STATE_VIEW.get(control.get("run_state", "run"), "run")
+    run_state = _derive_run_state(events, control)
 
     # Two constraint tiers (CONTRACT §3): WITH a bound = hard/active; WITHOUT = soft lesson.
     active_constraints: List[Dict[str, Any]] = []
