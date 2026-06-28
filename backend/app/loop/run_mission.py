@@ -17,6 +17,7 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from typing import Any, Dict, List, Optional, Union
@@ -64,6 +65,23 @@ def _rel(path: str) -> str:
     return os.path.relpath(path, REPO_ROOT)
 
 
+def _read_existing(events_path: str) -> List[Dict[str, Any]]:
+    """Read events already in the log (empty list if none) — for idempotent lifecycle."""
+    if not os.path.exists(events_path):
+        return []
+    out: List[Dict[str, Any]] = []
+    with open(events_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return out
+
+
 def _load_mission(mission: Union[Dict[str, Any], str, None]) -> Dict[str, Any]:
     if isinstance(mission, dict):
         return mission
@@ -83,6 +101,22 @@ def run_mission(
     events_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run the full Mode-A loop. Returns the mission_finished payload."""
+    runs_dir = os.path.join(REPO_ROOT, "runs", mission_id)
+    os.makedirs(runs_dir, exist_ok=True)
+    events_path = events_path or os.path.join(runs_dir, "events.jsonl")
+
+    # When started via the API (POST /missions then /start), the event log already
+    # holds mission_created/mission_started — read what's there so we don't double-emit
+    # and so we can recover the mission spec the API recorded. Standalone CLI runs see
+    # an empty log and emit everything from mission.yaml. (CONTRACT: log is source of truth.)
+    existing = _read_existing(events_path)
+    existing_types = {e.get("type") for e in existing}
+    if mission is None:
+        for e in existing:
+            if e.get("type") == "mission_created":
+                mission = e.get("payload")  # prefer the spec the API recorded
+                break
+
     spec = _load_mission(mission)
     model = spec.get("model", "claude-opus-4-8")
     objective = spec.get("objective", {"metric": "val_accuracy", "direction": "maximize"})
@@ -97,30 +131,31 @@ def run_mission(
     with open(BASELINE_CONFIG) as f:
         baseline_config = yaml.safe_load(f)
 
-    runs_dir = os.path.join(REPO_ROOT, "runs", mission_id)
-    os.makedirs(runs_dir, exist_ok=True)
-    events_path = events_path or os.path.join(runs_dir, "events.jsonl")
     emit = Emitter(mission_id, events_path)
 
     llm = LLMClient(model)
     path_kind = "LLM" if llm.available() else "heuristic"
     print(f"[run_mission] {mission_id} driver={path_kind} model={model}", flush=True)
 
-    # --- mission_created + mission_started ---
-    emit("mission_created", spec)
-    emit("mission_started", {"mode": "live", "started_by": "user"},
-         actor={"type": "human", "name": "user"})
+    # --- mission_created + mission_started (idempotent — skip if already in the log) ---
+    if "mission_created" not in existing_types:
+        emit("mission_created", spec)
+    if "mission_started" not in existing_types:
+        emit("mission_started", {"mode": "live", "started_by": "user"},
+             actor={"type": "human", "name": "user"})
 
     # --- seed human constraints (canonical objects) into memory ---
     active: List[Constraint] = []
+    seed_constraints = "constraint_added" not in existing_types
     for raw in spec.get("constraints", []) or []:
         try:
             c = Constraint.model_validate(raw)
         except Exception:
             continue
         active.append(c)
-        emit("constraint_added", c.to_payload(), branch_id=BRANCH_MAIN,
-             actor={"type": "human", "name": "user"})
+        if seed_constraints:
+            emit("constraint_added", c.to_payload(), branch_id=BRANCH_MAIN,
+                 actor={"type": "human", "name": "user"})
 
     nodes: List[PL.NodeView] = []
     learned_counter = 0
@@ -264,12 +299,22 @@ def run_mission(
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Run a Kun Mode-A tiny-CNN mission.")
-    ap.add_argument("--mission-id", required=True)
+    # Positional form is what the API's /start subprocess seam uses:
+    #   python -m app.loop.run_mission <mission_id> [mode]
+    # Flag form (--mission-id) is kept for standalone/manual runs.
+    ap.add_argument("mission_id_pos", nargs="?", default=None,
+                    help="Mission id (positional; used by the API /start seam).")
+    ap.add_argument("mode_pos", nargs="?", default=None,
+                    help="Mode (positional, accepted but unused — Mode A is implied).")
+    ap.add_argument("--mission-id", dest="mission_id", default=None)
     ap.add_argument("--mission", default=None,
                     help="Path to mission.yaml (default: examples/tiny_cnn/mission.yaml)")
     ap.add_argument("--events-path", default=None)
     args = ap.parse_args(argv)
-    run_mission(mission_id=args.mission_id, mission=args.mission,
+    mission_id = args.mission_id or args.mission_id_pos
+    if not mission_id:
+        ap.error("mission id required (positional or --mission-id)")
+    run_mission(mission_id=mission_id, mission=args.mission,
                 events_path=args.events_path)
 
 

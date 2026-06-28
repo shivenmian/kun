@@ -45,6 +45,10 @@ class LLMClient:
         try:
             import litellm  # noqa
 
+            # Provider-agnostic: silently drop params a given model rejects (e.g.
+            # newer Claude models deprecate `temperature`) instead of erroring out
+            # and falling back to the heuristic on every call.
+            litellm.drop_params = True
             self._litellm = litellm
         except Exception:  # pragma: no cover
             self._litellm = None
@@ -69,6 +73,10 @@ class LLMClient:
         if not self.available():
             return None
         try:
+            # NOTE: no `temperature` — newer Claude models (e.g. claude-opus-4-8)
+            # reject it, and litellm's registry is too old to drop it for us. The
+            # provider default is fine for planning/eval. (drop_params handles any
+            # other model-specific rejections.)
             resp = self._litellm.completion(
                 model=self.model,
                 messages=[
@@ -76,7 +84,6 @@ class LLMClient:
                     {"role": "user", "content": user},
                 ],
                 max_tokens=max_tokens,
-                temperature=0.4,
             )
             text = resp["choices"][0]["message"]["content"]
             return _extract_json(text)

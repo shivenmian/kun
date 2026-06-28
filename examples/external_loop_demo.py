@@ -4,7 +4,10 @@ This is somebody else's optimizer loop. The ONLY Kun integration is the `kun_log
 calls — ~5 lines. Run it while the cockpit watches and the nodes appear live, proving
 Kun observes loops it never ran.
 
-  KUN_EVENTS=runs/ext_demo/events.jsonl python examples/external_loop_demo.py
+  KUN_EVENTS=runs/mission_external_demo/events.jsonl python examples/external_loop_demo.py
+
+Then in the cockpit: "Observe external mission" -> mission_external_demo (or
+curl -X POST localhost:8000/missions/register -d '{"mission_id":"mission_external_demo"}').
 """
 import os
 import pathlib
@@ -15,10 +18,11 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from kun.log import kun_log  # the entire integration surface
 
-os.makedirs("runs/ext_demo", exist_ok=True)
-os.environ.setdefault("KUN_EVENTS", "runs/ext_demo/events.jsonl")
-
 MID = "mission_external_demo"
+# Write to runs/<mission_id>/events.jsonl so the backend (which tails that
+# conventional path) renders these nodes live — the file-tail wedge proof.
+os.makedirs(f"runs/{MID}", exist_ok=True)
+os.environ.setdefault("KUN_EVENTS", f"runs/{MID}/events.jsonl")
 best = 0.0
 
 kun_log("mission_created",
