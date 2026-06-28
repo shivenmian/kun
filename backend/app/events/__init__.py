@@ -11,10 +11,14 @@ from app.events.log_io import (  # noqa: F401
 )
 from app.events.models import (  # noqa: F401
     Actor,
+    ApproveRequest,
     EventEnvelope,
     ForkRequest,
+    InstructRequest,
     MissionCreate,
     MissionStart,
     P0_EVENT_TYPES,
     RegisterRequest,
+    RejectRequest,
+    StopRequest,
 )

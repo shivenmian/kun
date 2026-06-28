@@ -103,3 +103,50 @@ class RegisterRequest(BaseModel):
 
     mission_id: str
     events_path: Optional[str] = None
+
+
+# ---- P1 steering request bodies (CONTRACT §5.1 / §9; doc 03 "Human steering events") ----
+
+
+class InstructRequest(BaseModel):
+    """Body for POST /missions/{id}/instruct -> instruction_added payload (CONTRACT §5.1).
+
+    `bound`, when present, is a canonical constraint bound (CONTRACT §3) so the loop can
+    hard-reject like a constraint, not just soft-bias."""
+
+    model_config = {"extra": "allow"}
+
+    text: str
+    applies_from: Optional[str] = None
+    bound: Optional[Dict[str, Any]] = None
+
+
+class ApproveRequest(BaseModel):
+    """Body for POST /missions/{id}/experiments/{exp_id}/approve -> experiment_approved."""
+
+    model_config = {"extra": "allow"}
+
+    edited: Optional[bool] = None
+    changes: Optional[Dict[str, Any]] = None
+    note: Optional[str] = None
+
+
+class RejectRequest(BaseModel):
+    """Body for POST /missions/{id}/experiments/{exp_id}/reject -> experiment_rejected."""
+
+    model_config = {"extra": "allow"}
+
+    reason: str
+    replacement_changes: Optional[Dict[str, Any]] = None
+
+
+class StopRequest(BaseModel):
+    """Body for POST /missions/{id}/stop — the loop-control endpoint (CONTRACT §5.1/§9.2).
+
+    `action` maps to control.json run_state: stop->"stop", pause->"pause", resume->"run".
+    `approval_required` (when present) toggles the approval gate mid-run; when omitted the
+    existing control-file value is preserved."""
+
+    action: Literal["stop", "pause", "resume"]
+    approval_required: Optional[bool] = None
+    reason: Optional[str] = None
