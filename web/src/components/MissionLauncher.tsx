@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { Button, Card, CardBody, Input } from "./ui/primitives";
 import { registerMission } from "../lib/api";
+import { MissionHistory } from "./MissionHistory";
 
 export type LaunchChoice =
   | { kind: "replay" }
@@ -32,7 +33,7 @@ export function MissionLauncher({ onLaunch }: { onLaunch: (c: LaunchChoice, mode
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-950 p-6">
-      <div className="w-full max-w-xl">
+      <div className="w-full max-w-3xl">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-bold text-neutral-50">Kun — Mission Cockpit</h1>
           <p className="mt-1 text-sm text-neutral-500">
@@ -52,6 +53,10 @@ export function MissionLauncher({ onLaunch }: { onLaunch: (c: LaunchChoice, mode
             </div>
           </CardBody>
         </Card>
+
+        <div className="mb-3">
+          <MissionHistory onLaunch={onLaunch} model={model} />
+        </div>
 
         <Card className="mb-3">
           <CardBody className="flex items-center justify-between">

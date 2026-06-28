@@ -31,3 +31,28 @@ export const OPERATOR_COLOR: Record<Operator, string> = {
 export function statusColor(s: ExperimentStatus): string {
   return STATUS_COLOR[s] ?? "#94a3b8";
 }
+
+// Mission run-state colours (CONTRACT §9.1 vocabulary: run | paused | stopped | finished).
+// running=green, paused=amber, finished=neutral, stopped=red. Tolerant of the
+// control.json variants ("run"/"running", "pause"/"paused", "stop"/"stopped").
+export const RUN_STATE_COLOR: Record<string, string> = {
+  run: "#22c55e", // green (active)
+  running: "#22c55e",
+  paused: "#f59e0b", // amber
+  pause: "#f59e0b",
+  finished: "#94a3b8", // neutral gray
+  stopped: "#ef4444", // red
+  stop: "#ef4444",
+};
+
+export function runStateColor(s?: string): string {
+  return (s && RUN_STATE_COLOR[s]) || "#94a3b8";
+}
+
+export function runStateLabel(s?: string): string {
+  if (!s) return "unknown";
+  if (s === "run") return "running";
+  if (s === "pause") return "paused";
+  if (s === "stop") return "stopped";
+  return s;
+}
