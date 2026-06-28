@@ -77,12 +77,15 @@ export function TopbarStatus({
   selected,
   modeLabel,
   runState,
+  attention = 0,
 }: {
   state: MissionState;
   selected?: Experiment;
   modeLabel: string;
   /** Live Mode-A loop run_state from GET /state (CONTRACT §9.1). */
   runState?: "run" | "paused" | "stopped" | "finished";
+  /** Count of items needing a human now (e.g. a pending approval) → bell badge. */
+  attention?: number;
 }) {
   const m = state.mission;
   const best = state.bestMetric;
@@ -165,8 +168,22 @@ export function TopbarStatus({
         <span className="font-mono text-xs">{m?.model ?? "—"}</span>
       </Stat>
 
+      {attention > 0 && (
+        <span
+          className="ml-auto inline-flex animate-pulse items-center gap-1 rounded-full border border-amber-600/60 bg-amber-500/15 px-2 py-1 text-xs font-semibold text-amber-300"
+          title="Needs a human — approval pending"
+        >
+          🔔 {attention} needs you
+        </span>
+      )}
+
       {state.finished && (
-        <span className="ml-auto rounded bg-emerald-500/15 px-2 py-1 text-xs font-semibold text-emerald-400">
+        <span
+          className={
+            (attention > 0 ? "" : "ml-auto ") +
+            "rounded bg-emerald-500/15 px-2 py-1 text-xs font-semibold text-emerald-400"
+          }
+        >
           mission complete · {state.finishReason}
         </span>
       )}

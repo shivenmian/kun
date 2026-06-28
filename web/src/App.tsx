@@ -17,10 +17,10 @@ import { NewMissionModal } from "./components/NewMissionModal";
 import { ObserveModal } from "./components/ObserveModal";
 import { ReplayGallery } from "./components/ReplayGallery";
 import { EmptyState } from "./components/EmptyState";
-import { ApprovalGate } from "./components/ApprovalGate";
-import { InstructBox } from "./components/InstructBox";
-import { StopPauseControls } from "./components/StopPauseControls";
+import { ControlDeck } from "./components/ControlDeck";
+import { Toaster } from "./components/Toaster";
 import { useMissionRuntime } from "./state/useMissionRuntime";
+import { useAlerts } from "./state/useAlerts";
 import type { PendingApproval } from "./lib/api";
 import { Card, CardHeader, CardTitle, Button } from "./components/ui/primitives";
 import { cn } from "./lib/utils";
@@ -152,6 +152,9 @@ export default function App() {
     return null;
   }, [isLiveModeA, runtime, state.events, state.experimentsById]);
 
+  // Toasts + the topbar attention indicator, derived from the live stream + runtime.
+  const { alerts, dismiss, attentionCount } = useAlerts(state.events, pendingApproval, isLiveModeA);
+
   const modeLabel = useMemo(() => {
     if (!launched) return "—";
     if (launched.kind === "replay") return "replay";
@@ -183,6 +186,7 @@ export default function App() {
               selected={selected}
               modeLabel={modeLabel}
               runState={isLiveModeA ? runtime?.run_state : undefined}
+              attention={attentionCount}
             />
 
             <div className="flex items-center gap-2 border-b border-neutral-900 bg-neutral-950 px-4 py-1.5 text-xs">
@@ -194,27 +198,15 @@ export default function App() {
                 {launched.kind} {missionId ? `· ${missionId}` : ""} {conn && `· ${conn}`}
               </span>
               <div className="ml-auto flex items-center gap-2">
-                {isLiveModeA && (
-                  <StopPauseControls
-                    missionId={missionId}
-                    runState={runtime?.run_state}
-                    onChanged={refreshRuntime}
-                  />
+                {/* Live steering (incl. Fork) is grouped in the right-rail Control Deck.
+                    For replay/observe, keep the record-only Fork affordance here. */}
+                {!isLiveModeA && (
+                  <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
+                    ⑂ Fork from {selected?.id ?? "node"}
+                  </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => setForkOpen(true)}>
-                  ⑂ Fork from {selected?.id ?? "node"}
-                </Button>
               </div>
             </div>
-
-            {/* live steering surface — Mode-A live only (CONTRACT §5.1 / §9) */}
-            {isLiveModeA && pendingApproval && (
-              <ApprovalGate
-                missionId={missionId}
-                pending={pendingApproval}
-                onResolved={refreshRuntime}
-              />
-            )}
 
             {/* main 3-column workspace */}
             <div className="grid min-h-0 flex-1 grid-cols-12 gap-2 p-2">
@@ -265,8 +257,18 @@ export default function App() {
                 </div>
               </Card>
 
-              {/* right: research memory (hero) + event stream */}
+              {/* right: mission control (live) + research memory (hero) + event stream */}
               <div className="col-span-3 flex min-h-0 flex-col gap-2">
+                {isLiveModeA && (
+                  <ControlDeck
+                    missionId={missionId}
+                    runtime={runtime}
+                    pendingApproval={pendingApproval}
+                    selectedId={selected?.id}
+                    onChanged={refreshRuntime}
+                    onFork={() => setForkOpen(true)}
+                  />
+                )}
                 <Card className="flex min-h-0 flex-[3] flex-col">
                   <CardHeader>
                     <CardTitle>🧠 Research Memory</CardTitle>
@@ -282,17 +284,6 @@ export default function App() {
                     />
                   </div>
                 </Card>
-                {isLiveModeA && (
-                  <Card className="flex flex-none flex-col">
-                    <CardHeader>
-                      <CardTitle>✍ Instruct</CardTitle>
-                      <span className="text-[10px] text-neutral-500">mid-run guidance</span>
-                    </CardHeader>
-                    <div className="overflow-auto">
-                      <InstructBox missionId={missionId} onSent={refreshRuntime} />
-                    </div>
-                  </Card>
-                )}
                 <Card className="flex min-h-0 flex-[2] flex-col">
                   <CardHeader>
                     <CardTitle>Event Stream</CardTitle>
@@ -347,6 +338,9 @@ export default function App() {
           navRef.current?.refresh();
         }}
       />
+
+      {/* live alerts/toasts — surfaces NaN→constraint, approval-needed, finished, new best */}
+      <Toaster alerts={alerts} onDismiss={dismiss} />
     </div>
   );
 }

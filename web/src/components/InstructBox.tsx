@@ -9,9 +9,12 @@ import { instructMission } from "../lib/api";
 export function InstructBox({
   missionId,
   onSent,
+  disabled,
 }: {
   missionId?: string;
   onSent?: () => void;
+  /** Disabled once the loop is stopped/finished (no upcoming proposals to bias). */
+  disabled?: boolean;
 }) {
   const [text, setText] = useState("");
   const [showBound, setShowBound] = useState(false);
@@ -23,7 +26,7 @@ export function InstructBox({
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    if (!missionId || !text.trim()) return;
+    if (!missionId || !text.trim() || disabled) return;
     const bound =
       showBound && param && value
         ? { param, op, value: Number(value) }
@@ -110,7 +113,7 @@ export function InstructBox({
       {status && <div className="mb-2 text-[11px] text-amber-300">{status}</div>}
 
       <div className="flex justify-end">
-        <Button size="sm" onClick={submit} disabled={!missionId || !text.trim() || busy}>
+        <Button size="sm" onClick={submit} disabled={!missionId || !text.trim() || busy || disabled}>
           Send instruction
         </Button>
       </div>
