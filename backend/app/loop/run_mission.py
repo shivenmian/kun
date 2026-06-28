@@ -158,10 +158,27 @@ def run_mission(
                  actor={"type": "human", "name": "user"})
 
     nodes: List[PL.NodeView] = []
+    soft_lessons: List[Constraint] = []  # SOFT tier (no bound) — bias-only
     learned_counter = 0
     best_value: Optional[float] = None
     best_id: Optional[str] = None
     stop_reason = "max_experiments_reached"
+
+    def emit_hard_learned(factory, exp_id: str) -> Constraint:
+        """Build a hard learned constraint, MERGE it into memory (tighten bound +
+        grow confidence instead of duplicating), and emit it. ``factory`` takes the
+        candidate constraint_id and returns the Constraint. A new constraint
+        consumes the next learned_NNN id; a merge reuses the existing id so the
+        memory panel shows ONE sharpened constraint (state is keyed by id)."""
+        nonlocal learned_counter
+        candidate_id = f"learned_{learned_counter + 1:03d}"
+        candidate = factory(candidate_id)
+        merged, was_merged = C.merge_learned_constraint(active, candidate)
+        if not was_merged:
+            learned_counter += 1
+        emit("constraint_learned", merged.to_payload(),
+             experiment_id=exp_id, branch_id=BRANCH_MAIN)
+        return merged
 
     exp_i = 0
     while exp_i < max_experiments:
@@ -169,6 +186,7 @@ def run_mission(
         ctx = PL.PlanContext(
             nodes=nodes, constraints=active, allowed_changes=allowed_changes,
             baseline_config=baseline_config, objective=objective,
+            soft_lessons=soft_lessons,
         )
         res = PL.propose(ctx, llm=llm)
         prop = res.proposal
@@ -220,20 +238,43 @@ def run_mission(
 
         full_config = dict(parent_config)
         full_config.update(prop.changes)
+        parent_metrics = next(
+            (n.final_metrics for n in nodes if n.id == parent_id), {}
+        )
 
         # --- closed constraint loop: NaN -> deterministic constraint_learned ---
         if result["status"] == "failed" and result.get("failure_type") == "nan_detected":
             lr = float(full_config.get("learning_rate", 0.0))
-            learned_counter += 1
-            cid = f"learned_{learned_counter:03d}"
-            constraint = C.learn_constraint_from_nan(
-                lr_at_failure=lr, experiment_id=exp_id, constraint_id=cid,
+            constraint = emit_hard_learned(
+                lambda cid: C.learn_constraint_from_nan(
+                    lr_at_failure=lr, experiment_id=exp_id, constraint_id=cid,
+                ),
+                exp_id,
             )
-            active.append(constraint)
-            emit("constraint_learned", constraint.to_payload(),
-                 experiment_id=exp_id, branch_id=BRANCH_MAIN)
-            print(f"[constraint] {exp_id} NaN at lr={lr} -> {cid} "
-                  f"bans learning_rate > {constraint.bound.value}", flush=True)
+            print(f"[constraint] {exp_id} NaN at lr={lr} -> {constraint.constraint_id} "
+                  f"bans learning_rate > {constraint.bound.value} "
+                  f"(confidence={constraint.confidence})", flush=True)
+
+        # --- underfitting -> deterministic dropout/reg bound (sample's learned_002) ---
+        if result["status"] == "success":
+            hit = C.detect_underfit_param(
+                changes=prop.changes, parent_config=parent_config,
+                parent_metrics=parent_metrics,
+                child_metrics=result.get("final_metrics", {}), metric=metric,
+            )
+            if hit is not None:
+                uf_param, uf_value = hit
+                constraint = emit_hard_learned(
+                    lambda cid: C.learn_constraint_from_underfit(
+                        param=uf_param, value_at_underfit=uf_value,
+                        experiment_id=exp_id, constraint_id=cid,
+                    ),
+                    exp_id,
+                )
+                print(f"[constraint] {exp_id} underfit at {uf_param}={uf_value} -> "
+                      f"{constraint.constraint_id} bans {uf_param} > "
+                      f"{constraint.bound.value} (confidence={constraint.confidence})",
+                      flush=True)
 
         # --- evaluate ---
         evaluation = EV.evaluate(
@@ -258,6 +299,8 @@ def run_mission(
             failure_type=result.get("failure_type"), parent_id=parent_id,
         )
         nodes.append(node)
+        prev_best_value = best_value
+        val = None
         if result["status"] == "success":
             val = result.get("final_metrics", {}).get(metric)
             if val is not None:
@@ -275,6 +318,24 @@ def run_mission(
              {"decision": decision.decision, "rationale": decision.rationale,
               "next_action": decision.next_action.model_dump()},
              experiment_id=exp_id, branch_id=BRANCH_MAIN)
+
+        # --- positive Σ-summary: promote with a real metric gain -> SOFT lesson ---
+        if (decision.decision == "promote" and val is not None
+                and prev_best_value is not None and prop.changes):
+            improvement = (val - prev_best_value if direction == "maximize"
+                           else prev_best_value - val)
+            if improvement > 0:
+                learned_counter += 1
+                lesson = C.soft_lesson_from_promotion(
+                    changes=prop.changes, metric=metric, delta=improvement,
+                    experiment_id=exp_id,
+                    constraint_id=f"learned_{learned_counter:03d}",
+                )
+                soft_lessons.append(lesson)
+                emit("constraint_learned", lesson.to_payload(),
+                     experiment_id=exp_id, branch_id=BRANCH_MAIN)
+                print(f"[lesson] {exp_id} promote -> soft lesson "
+                      f"{lesson.constraint_id}: {lesson.text}", flush=True)
 
         exp_i += 1
 
